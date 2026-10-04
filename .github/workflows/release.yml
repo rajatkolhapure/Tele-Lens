@@ -120,7 +120,6 @@ jobs:
         run: |
           flutter build apk \
             --release \
-            --split-per-abi=false \
             --target-platform android-arm,android-arm64,android-x64
 
       - name: Rename APK with version tag
