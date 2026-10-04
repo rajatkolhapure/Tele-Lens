@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_webrtc: ^0.11.8
+  flutter_webrtc: ^1.6.2+hotfix.3
   camera: ^0.11.0+2
   wakelock_plus: ^1.2.5
   device_info_plus: ^10.1.2
