@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'ui/scanner_view.dart';
+import 'ui/home_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,15 +16,15 @@ class TeleLensMobileApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF12121E),
+        scaffoldBackgroundColor: const Color(0xFF0D0D1A),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF00ADB5),
           secondary: Color(0xFF00ADB5),
-          surface: Color(0xFF1E1E2E),
+          surface: Color(0xFF1A1A2E),
         ),
         useMaterial3: true,
       ),
-      home: const ScannerView(),
+      home: const HomeScreen(),
     );
   }
 }
