@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TeleLensDataChannelMessage",
+  "type": "object",
+  "required": ["method"],
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "camera.setTorch",
+        "camera.setLens",
+        "camera.setZoom",
+        "camera.setExposure",
+        "camera.setFocus",
+        "camera.setWhiteBalance",
+        "camera.setResolution",
+        "camera.setFramerate",
+        "telemetry.status",
+        "telemetry.battery",
+        "telemetry.thermal"
+      ]
+    },
+    "params": {
+      "type": "object"
+    }
+  }
+}
