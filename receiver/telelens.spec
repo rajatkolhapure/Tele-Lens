@@ -6,6 +6,10 @@
 import sys
 from pathlib import Path
 
+# Resolve repository root from spec location (receiver/telelens.spec -> repo root)
+ROOT_DIR = Path(SPECPATH).resolve().parent
+ICON_PATH = ROOT_DIR / 'installer' / 'assets' / 'telelens.ico'
+
 block_cipher = None
 
 # ── Analysis ───────────────────────────────────────────────────────────────────
@@ -83,7 +87,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='installer/assets/telelens.ico',
+    icon=str(ICON_PATH) if ICON_PATH.exists() else None,
 )
 
 # ── COLLECT ────────────────────────────────────────────────────────────────────

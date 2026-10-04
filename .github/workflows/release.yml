@@ -44,27 +44,25 @@ jobs:
           pip install -r receiver/requirements.txt
           pip install pyinstaller
 
+      # ── Verify installer icon and prepare driver stubs ───────────────────
+      - name: Verify installer assets and driver stubs
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "installer\assets\telelens.ico")) {
+            throw "Missing installer icon: installer\assets\telelens.ico"
+          }
+          New-Item -ItemType Directory -Force installer\drivers\obs-virtualcam | Out-Null
+          if (-not (Test-Path "installer\drivers\obs-virtualcam\obs-virtualcam-startup.dll")) {
+            [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup.dll", [byte[]]@())
+          }
+          if (-not (Test-Path "installer\drivers\obs-virtualcam\obs-virtualcam-startup-32bit.dll")) {
+            [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup-32bit.dll", [byte[]]@())
+          }
+
       - name: Build one-folder PyInstaller bundle
         working-directory: receiver
         run: |
           pyinstaller telelens.spec --clean --noconfirm
-
-      # ── Placeholder icon & driver stubs ─────────────────────────────────
-      # In a real release workflow you would:
-      #   a) Check a signed .ico file into installer/assets/
-      #   b) Store OBS DLLs in a private GitHub Actions cache / S3 bucket
-      #      and restore them here.
-      # For now we create placeholder stubs so the Inno Setup compile succeeds.
-      - name: Create installer asset placeholders
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force installer\assets | Out-Null
-          New-Item -ItemType Directory -Force installer\drivers\obs-virtualcam | Out-Null
-          # Stub icon (real one should be a proper .ico; this keeps CI green)
-          [System.IO.File]::WriteAllBytes("installer\assets\telelens.ico", [byte[]]@(0,0,1,0))
-          # Stub DLLs — replace with real OBS virtual cam DLLs in production
-          [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup.dll", [byte[]]@())
-          [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup-32bit.dll", [byte[]]@())
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
