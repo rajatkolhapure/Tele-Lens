@@ -6,22 +6,48 @@
 import sys
 from pathlib import Path
 
-# Resolve repository root from spec location (receiver/telelens.spec -> repo root)
-ROOT_DIR = Path(SPECPATH).resolve().parent
+# Resolve repository root and receiver directory from spec location
+RECEIVER_DIR = Path(SPECPATH).resolve()
+ROOT_DIR = RECEIVER_DIR.parent
 ICON_PATH = ROOT_DIR / 'installer' / 'assets' / 'telelens.ico'
 
 block_cipher = None
 
 # ── Analysis ───────────────────────────────────────────────────────────────────
 a = Analysis(
-    ['telelens/ui/app.py'],
-    pathex=['receiver'],
+    ['main.py'],
+    pathex=[str(RECEIVER_DIR)],
     binaries=[],
     datas=[
+        # Include telelens package source tree directly in the bundle
+        (str(RECEIVER_DIR / 'telelens'), 'telelens'),
         # Include the shared protocol schema files for runtime use
-        ('../shared/protocol', 'protocol'),
+        (str(ROOT_DIR / 'shared' / 'protocol'), 'protocol'),
     ],
     hiddenimports=[
+        # TeleLens core modules
+        'telelens',
+        'telelens.config',
+        'telelens.ui',
+        'telelens.ui.app',
+        'telelens.ui.styles',
+        'telelens.ui.styles.dark_theme',
+        'telelens.ui.components',
+        'telelens.ui.components.video_widget',
+        'telelens.ui.dialogs',
+        'telelens.ui.dialogs.approval_dialog',
+        'telelens.ui.dialogs.qr_dialog',
+        'telelens.ui.dialogs.diagnostic_dialog',
+        'telelens.discovery',
+        'telelens.discovery.mdns',
+        'telelens.discovery.qr_code',
+        'telelens.driver',
+        'telelens.driver.diagnostics',
+        'telelens.driver.virtual_cam',
+        'telelens.webrtc',
+        'telelens.webrtc.signaling',
+        'telelens.webrtc.peer',
+        'telelens.webrtc.controls',
         # aiortc / PyAV codec plugins
         'av.codec.codec',
         'av.filter',

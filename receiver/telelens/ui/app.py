@@ -22,6 +22,12 @@ except ImportError:
     QMainWindow = object
     QObject = object
 
+# Defensive path insertion for PyInstaller frozen execution or direct execution
+import os
+_base = getattr(sys, '_MEIPASS', os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+if _base not in sys.path:
+    sys.path.insert(0, _base)
+
 from telelens.config import TeleLensConfig
 from telelens.ui.styles.dark_theme import DARK_STYLESHEET
 from telelens.ui.components.video_widget import VideoPreviewWidget
