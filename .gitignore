@@ -112,3 +112,11 @@ ehthumbs_vista.db
 logs/
 *.log
 *.tmp
+
+# PyInstaller / Inno Setup dist outputs
+dist-installer/
+receiver/dist/
+receiver/build/
+
+# Allow the PyInstaller spec file (excluded by installer/.gitignore's *.spec.bak pattern was wrong)
+!receiver/telelens.spec
