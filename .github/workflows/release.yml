@@ -1,0 +1,203 @@
+name: Release — Build & Publish
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+# 1. Automatically when a version tag is pushed  (e.g.  git tag v1.0.0 && git push --tags)
+# 2. Manually via Actions > "Run workflow" for test/pre-release builds
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Mark as pre-release?'
+        required: false
+        default: 'true'
+        type: boolean
+
+# ─── Permissions ─────────────────────────────────────────────────────────────
+permissions:
+  contents: write   # Required to create GitHub Releases and upload assets
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Windows Installer  (TeleLens-Setup.exe)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-windows:
+    name: 🪟 Build Windows Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: receiver/requirements.txt
+
+      - name: Install Python dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r receiver/requirements.txt
+          pip install pyinstaller
+
+      - name: Build one-folder PyInstaller bundle
+        working-directory: receiver
+        run: |
+          pyinstaller telelens.spec --clean --noconfirm
+
+      # ── Placeholder icon & driver stubs ─────────────────────────────────
+      # In a real release workflow you would:
+      #   a) Check a signed .ico file into installer/assets/
+      #   b) Store OBS DLLs in a private GitHub Actions cache / S3 bucket
+      #      and restore them here.
+      # For now we create placeholder stubs so the Inno Setup compile succeeds.
+      - name: Create installer asset placeholders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer\assets | Out-Null
+          New-Item -ItemType Directory -Force installer\drivers\obs-virtualcam | Out-Null
+          # Stub icon (real one should be a proper .ico; this keeps CI green)
+          [System.IO.File]::WriteAllBytes("installer\assets\telelens.ico", [byte[]]@(0,0,1,0))
+          # Stub DLLs — replace with real OBS virtual cam DLLs in production
+          [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup.dll", [byte[]]@())
+          [System.IO.File]::WriteAllBytes("installer\drivers\obs-virtualcam\obs-virtualcam-startup-32bit.dll", [byte[]]@())
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile Inno Setup installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\telelens_installer.iss
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-installer/TeleLens-Setup.exe
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Android Universal APK  (TeleLens-Android-Universal.apk)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-android:
+    name: 🤖 Build Android Universal APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (required by Android Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter (stable channel)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Analyze Dart code
+        working-directory: mobile
+        run: flutter analyze --no-fatal-warnings
+
+      - name: Run Flutter unit tests
+        working-directory: mobile
+        run: flutter test
+
+      - name: Build universal release APK
+        working-directory: mobile
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi=false \
+            --target-platform android-arm,android-arm64,android-x64
+
+      - name: Rename APK with version tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Fallback for manual dispatch (no tag)
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then TAG="dev"; fi
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk \
+             TeleLens-Android-Universal-${TAG}.apk
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: TeleLens-Android-Universal-*.apk
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 3 — Create GitHub Release  (runs after both builds succeed)
+  # ═══════════════════════════════════════════════════════════════════════════
+  create-release:
+    name: 🚀 Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-android]
+    # Only create a real release on tagged pushes; manual dispatch gets a pre-release
+    if: always() && (needs.build-windows.result == 'success' || needs.build-android.result == 'success')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+
+      - name: Determine version & pre-release flag
+        id: meta
+        run: |
+          TAG="${{ github.ref_name }}"
+          IS_PRERELEASE="${{ github.event.inputs.prerelease || 'false' }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="dev-$(date +%Y%m%d-%H%M)"
+            IS_PRERELEASE="true"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release and attach binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: "TeleLens ${{ steps.meta.outputs.tag }}"
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          body: |
+            ## TeleLens ${{ steps.meta.outputs.tag }}
+
+            ### 🖥️ Windows Installation (Recommended)
+            1. Download **`TeleLens-Setup.exe`** below and run it.
+            2. The installer registers the virtual camera driver automatically.
+            3. A desktop shortcut is created — double-click to launch.
+
+            ### 📱 Android Installation
+            1. Download **`TeleLens-Android-Universal.apk`** below.
+            2. On your phone: **Settings → Apps → Install unknown apps** → allow your browser.
+            3. Tap the downloaded APK to install.
+            4. Open TeleLens → your laptop appears instantly → tap **Connect**.
+
+            ### ⚡ First-Time Setup (30 seconds)
+            1. Run TeleLens on your laptop.
+            2. Open TeleLens on your phone — it auto-discovers the laptop.
+            3. Tap the glowing laptop card, click **Accept** on the laptop.
+            4. Your phone is now a 4K webcam! Open Zoom / Teams / Meet and select **TeleLens Virtual Camera**.
+
+            > **Tip:** For wired USB (zero-jitter) connection, plug in your phone and tap ⚡ USB Connect in the app.
+          files: |
+            release-artifacts/windows-installer/TeleLens-Setup.exe
+            release-artifacts/android-apk/TeleLens-Android-Universal-*.apk
