@@ -1,0 +1,8 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# folders we never want to commit
+# ─────────────────────────────────────────────────────────────────────────────
+installer/drivers/
+dist-installer/
+receiver/dist/
+receiver/build/
+*.spec.bak
