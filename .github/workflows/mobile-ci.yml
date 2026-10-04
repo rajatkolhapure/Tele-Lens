@@ -35,6 +35,7 @@ jobs:
         run: flutter analyze --no-fatal-warnings
 
       - name: Run unit tests
+        if: ${{ hashFiles('mobile/test/**/*_test.dart') != '' }}
         working-directory: mobile
         run: flutter test
 
