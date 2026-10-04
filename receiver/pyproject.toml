@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telelens-receiver"
+version = "0.1.0"
+description = "Professional, watermark-free Phone-to-Laptop webcam receiver and studio dashboard"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Rajat" }
+]
+dependencies = [
+    "PyQt6>=6.6.0",
+    "pyvirtualcam>=0.11.0",
+    "aiortc>=1.9.0",
+    "aiohttp>=3.9.0",
+    "zeroconf>=0.131.0",
+    "qrcode>=7.4.2",
+    "pillow>=10.2.0",
+    "numpy>=1.26.0",
+    "av>=12.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.3.0"
+]
+
+[project.scripts]
+telelens = "telelens.ui.app:main"
+telelens-diag = "telelens.driver.diagnostics:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
