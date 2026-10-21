@@ -24,6 +24,9 @@ AppVersion={#MyAppVersion}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+UsePreviousAppDir=no
 DefaultDirName={autopf}\TeleLens
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -55,21 +58,21 @@ Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 ; ── OBS Virtual Camera DirectShow Filter ────────────────────────────────────
 ; These DLLs are bundled from the open-source obs-studio project (MIT-compatible GPLv2).
 ; We register them silently during install so users never need to install full OBS Studio.
-Source: "{#MyDriverDir}\obs-virtualcam-startup.dll"; DestDir: "{sys}"; Flags: ignoreversion; Tasks: registervcam
-Source: "{#MyDriverDir}\obs-virtualcam-startup-32bit.dll"; DestDir: "{syswow64}"; Flags: ignoreversion; Tasks: registervcam; Check: IsWin64
+Source: "{#MyDriverDir}\obs-virtualcam-startup.dll"; DestDir: "{sys}"; Flags: 64bit ignoreversion; Tasks: registervcam
+Source: "{#MyDriverDir}\obs-virtualcam-startup-32bit.dll"; DestDir: "{syswow64}"; Flags: 32bit ignoreversion; Tasks: registervcam; Check: IsWin64
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\{#MyAppExeName}"
 
 [Run]
 ; ── Register Virtual Camera DLLs ─────────────────────────────────────────────
-Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{sys}\obs-virtualcam-startup.dll"""; StatusMsg: "Registering virtual webcam driver..."; Tasks: registervcam; Flags: runhidden waituntilterminated
-Filename: "{syswow64}\regsvr32.exe"; Parameters: "/s ""{syswow64}\obs-virtualcam-startup-32bit.dll"""; StatusMsg: "Registering 32-bit virtual webcam driver..."; Tasks: registervcam; Check: IsWin64; Flags: runhidden waituntilterminated
+Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{sys}\obs-virtualcam-startup.dll"""; StatusMsg: "Registering virtual webcam driver..."; Tasks: registervcam; Flags: 64bit runhidden waituntilterminated
+Filename: "{syswow64}\regsvr32.exe"; Parameters: "/s ""{syswow64}\obs-virtualcam-startup-32bit.dll"""; StatusMsg: "Registering 32-bit virtual webcam driver..."; Tasks: registervcam; Check: IsWin64; Flags: 32bit runhidden waituntilterminated
 
 ; ── Launch App After Install ─────────────────────────────────────────────────
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Unregister virtual camera DLLs on uninstall

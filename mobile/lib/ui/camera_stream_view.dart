@@ -23,7 +23,6 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   final Battery _battery = Battery();
   Timer? _telemetryTimer;
   bool _thermalSaverActive = false;
-  double _screenOpacity = 1.0;
   String _activeLens = "Rear Main";
   bool _torchActive = false;
 
@@ -57,7 +56,6 @@ class _CameraStreamViewState extends State<CameraStreamView> {
         _torchActive = params['enabled'] ?? false;
       } else if (method == "camera.setThermalSaver") {
         _thermalSaverActive = params['enabled'] ?? false;
-        _screenOpacity = _thermalSaverActive ? 0.05 : 1.0;
       } else if (method == "camera.setLens") {
         _activeLens = params['lens'] ?? _activeLens;
       }
