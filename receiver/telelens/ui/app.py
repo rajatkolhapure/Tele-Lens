@@ -357,8 +357,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
 def main():
     if not PYQT6_AVAILABLE:
-        print("PyQt6 is required. Install with: pip install PyQt6")
-        sys.exit(1)
+        raise RuntimeError("PyQt6 is required to launch the desktop UI. Please install it using: pip install PyQt6")
     app = QApplication(sys.argv)
     window = TeleLensMainWindow()
     window.show()

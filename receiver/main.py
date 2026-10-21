@@ -22,8 +22,15 @@ def _log_crash_and_notify(exc: Exception):
     except Exception:
         pass
 
-    # Display Windows error dialog even if console=False
-    if sys.platform == "win32":
+    # Output to stderr if available
+    try:
+        if sys.stderr:
+            sys.stderr.write(f"\n[TeleLens Startup Error] {exc}\n{err_msg}\n")
+    except Exception:
+        pass
+
+    # Show native Windows modal dialog for packaged frozen executable (.exe)
+    if sys.platform == "win32" and getattr(sys, 'frozen', False) and not os.environ.get("CI"):
         try:
             import ctypes
             ctypes.windll.user32.MessageBoxW(
