@@ -13,6 +13,19 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Force all plugin subprojects to compile against SDK 36 so that plugins
+// like package_info_plus (which read flutter.compileSdkVersion) don't fail
+// when their own build.gradle specifies a lower compileSdkVersion.
+subprojects {
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.android {
+                compileSdkVersion 36
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
