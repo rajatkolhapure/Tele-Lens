@@ -5,7 +5,6 @@ WebSocket server managing client handshake, laptop user approval, and WebRTC SDP
 
 import json
 import logging
-import asyncio
 from typing import Callable, Optional, Dict, Any, Awaitable
 
 logger = logging.getLogger(__name__)

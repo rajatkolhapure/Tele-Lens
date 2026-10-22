@@ -37,7 +37,7 @@ class ApprovalDialog(QDialog if PYQT6_AVAILABLE else object):
         layout.addWidget(title)
 
         desc = QLabel(
-            f"The following device is requesting to stream video & audio to this laptop:"
+            "The following device is requesting to stream video & audio to this laptop:"
         )
         desc.setWordWrap(True)
         layout.addWidget(desc)

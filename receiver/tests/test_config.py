@@ -3,7 +3,7 @@ Tests for TeleLens Configuration.
 """
 
 import unittest
-from telelens.config import TeleLensConfig, StreamConfig, ServerConfig
+from telelens.config import TeleLensConfig, StreamConfig
 
 
 class TestConfig(unittest.TestCase):

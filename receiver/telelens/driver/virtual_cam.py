@@ -5,7 +5,7 @@ Encapsulates pyvirtualcam frame publishing, resolution adaptation, and color for
 
 import logging
 import threading
-from typing import Optional, Tuple
+from typing import Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)

@@ -3,7 +3,6 @@ TeleLens QR Code Pairing Dialog.
 Displays connection QR code for mobile scanning.
 """
 
-from typing import Optional
 
 try:
     from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton

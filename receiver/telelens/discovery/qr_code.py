@@ -5,7 +5,7 @@ Produces encrypted or plain JSON connection payloads and renders QR code images 
 
 import json
 from io import BytesIO
-from typing import Dict, Any, Optional
+from typing import Optional
 
 try:
     import qrcode
