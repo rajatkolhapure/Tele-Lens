@@ -6,12 +6,14 @@ on:
     paths:
       - 'receiver/**'
       - 'shared/**'
+      - 'ruff.toml'
       - '.github/workflows/receiver-ci.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'receiver/**'
       - 'shared/**'
+      - 'ruff.toml'
 
 jobs:
   test:
