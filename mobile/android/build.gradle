@@ -9,21 +9,19 @@ rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
-subprojects {
-    project.evaluationDependsOn(":app")
-}
 
-// Force all plugin subprojects to compile against SDK 36 so that plugins
-// like package_info_plus (which read flutter.compileSdkVersion) don't fail
-// when their own build.gradle specifies a lower compileSdkVersion.
+// Ensure all Android library plugins compile against SDK 36
+// Using plugins.withId avoids invalid afterEvaluate lifecycle calls
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-            project.android {
-                compileSdkVersion 36
-            }
+    project.plugins.withId("com.android.library") {
+        project.android {
+            compileSdk = 36
         }
     }
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {
