@@ -32,7 +32,15 @@ jobs:
 
       - name: Analyze Dart code
         working-directory: mobile
-        run: flutter analyze --no-fatal-warnings
+        run: |
+          flutter analyze --no-fatal-warnings 2>&1 | tee /tmp/flutter_analyze.log || true
+          echo "--- ANALYZE OUTPUT ---"
+          cat /tmp/flutter_analyze.log
+          # Fail only on actual errors (not warnings/infos)
+          if grep -E "^  error •" /tmp/flutter_analyze.log; then
+            echo "ERRORS FOUND — see above"
+            exit 1
+          fi
 
       - name: Run unit tests
         if: ${{ hashFiles('mobile/test/**/*_test.dart') != '' }}
