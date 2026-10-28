@@ -66,9 +66,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // ── Connection Logic ──────────────────────────────────────────────────────
-  Future<void> _connectWithPayload(String rawPayload,
-      {String displayName = 'TeleLens Studio'}) async {
-    if (_isConnecting) return;
+  Future<bool> _connectWithPayload(String rawPayload,
+      {String displayName = 'TeleLens Studio', bool suppressError = false}) async {
+    if (_isConnecting) return false;
     setState(() => _isConnecting = true);
 
     try {
@@ -98,12 +98,14 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       }
+      return true;
     } catch (e) {
-      if (mounted) {
+      if (mounted && !suppressError) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Connection failed: $e')),
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isConnecting = false);
     }
@@ -117,14 +119,79 @@ class _HomeScreenState extends State<HomeScreen>
   void _connectToDevice(DiscoveredDevice device) =>
       _connectWithPayload(device.connectionPayload, displayName: device.name);
 
-  void _connectUSB() => _connectWithPayload(jsonEncode({
+  Future<void> _connectUSB() async {
+    final success = await _connectWithPayload(
+      jsonEncode({
         'app': 'telelens',
         'name': 'TeleLens via USB',
         'host': '127.0.0.1',
         'port': 8990,
         'ws_url': 'ws://127.0.0.1:8990/ws',
         'token': 'open',
-      }));
+      }),
+      suppressError: true,
+    );
+
+    if (!success && mounted) {
+      _showUsbGuidanceDialog();
+    }
+  }
+
+  void _showUsbGuidanceDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF121214),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFF27272A)),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.usb, color: Color(0xFFE4E4E7), size: 22),
+            SizedBox(width: 10),
+            Text(
+              'USB Cable Setup',
+              style: TextStyle(
+                color: Color(0xFFF4F4F5),
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'To stream with lowest latency over USB:',
+              style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 13),
+            ),
+            SizedBox(height: 12),
+            Text(
+              '1. Enable Developer Options on your phone.\n'
+              '2. Turn ON "USB Debugging".\n'
+              '3. Connect phone to laptop with a USB cable.\n'
+              '4. Tap "Allow USB Debugging" when prompted.\n\n'
+              'TeleLens on Windows will automatically detect your phone and route video directly.',
+              style: TextStyle(
+                color: Color(0xFFE4E4E7),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Got it', style: TextStyle(color: Color(0xFFE4E4E7), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _connectManual() {
     final ip = _ipController.text.trim();
@@ -154,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D1A),
+      backgroundColor: const Color(0xFF09090B),
       body: SafeArea(
         child: _isConnecting
             ? _buildConnectingOverlay()
@@ -170,19 +237,19 @@ class _HomeScreenState extends State<HomeScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircularProgressIndicator(color: Color(0xFF00ADB5), strokeWidth: 3),
+          CircularProgressIndicator(color: Color(0xFFE4E4E7), strokeWidth: 3),
           SizedBox(height: 20),
           Text(
             'Connecting…',
             style: TextStyle(
-                color: Color(0xFF00ADB5),
+                color: Color(0xFFF4F4F5),
                 fontSize: 18,
                 fontWeight: FontWeight.w600),
           ),
           SizedBox(height: 8),
           Text(
             'Waiting for laptop approval',
-            style: TextStyle(color: Colors.white54, fontSize: 13),
+            style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 13),
           ),
         ],
       ),
@@ -199,7 +266,7 @@ class _HomeScreenState extends State<HomeScreen>
             width: 260,
             height: 260,
             decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFF00ADB5), width: 3),
+              border: Border.all(color: const Color(0xFFE4E4E7), width: 2.5),
               borderRadius: BorderRadius.circular(18),
             ),
           ),
@@ -213,10 +280,11 @@ class _HomeScreenState extends State<HomeScreen>
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.black54,
+                color: const Color(0xFF18181B).withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: const Color(0xFF27272A)),
               ),
-              child: const Icon(Icons.arrow_back, color: Colors.white),
+              child: const Icon(Icons.arrow_back, color: Color(0xFFF4F4F5)),
             ),
           ),
         ),
@@ -227,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Text(
             'Point camera at the QR code\ndisplayed on your laptop',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70, fontSize: 14),
+            style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 14),
           ),
         ),
       ],
@@ -246,22 +314,45 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Row(
                   children: [
+                    // Circle Logo with Grey Aura Glow
                     Container(
-                      width: 38,
-                      height: 38,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF00ADB5),
-                        borderRadius: BorderRadius.circular(10),
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF18181B),
+                        border: Border.all(color: const Color(0xFF52525B), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                          ),
+                          BoxShadow(
+                            color: const Color(0xFF71717A).withValues(alpha: 0.25),
+                            blurRadius: 28,
+                            spreadRadius: 4,
+                          ),
+                        ],
                       ),
-                      child: const Icon(Icons.videocam, color: Colors.black, size: 22),
+                      child: Center(
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFFF4F4F5),
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     const Text(
                       'TeleLens',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFF4F4F5),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
                         letterSpacing: -0.5,
                       ),
                     ),
@@ -269,8 +360,8 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Turn your phone into a 4K studio webcam',
-                  style: TextStyle(color: Colors.white38, fontSize: 13),
+                  'Turn your phone into a studio webcam',
+                  style: TextStyle(color: Color(0xFF71717A), fontSize: 13),
                 ),
                 const SizedBox(height: 28),
               ],
@@ -289,11 +380,11 @@ class _HomeScreenState extends State<HomeScreen>
         // ── Section: Other Ways to Connect ──────────────────────────────────
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-            child: Text(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 10),
+            child: const Text(
               'OTHER WAYS TO CONNECT',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.3),
+                color: Color(0xFF71717A),
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.5,
@@ -324,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen>
             const Text(
               'NEARBY LAPTOPS',
               style: TextStyle(
-                color: Colors.white38,
+                color: Color(0xFF71717A),
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.5,
@@ -336,7 +427,7 @@ class _HomeScreenState extends State<HomeScreen>
                 width: 12,
                 height: 12,
                 child: CircularProgressIndicator(
-                  color: Color(0xFF00ADB5),
+                  color: Color(0xFFE4E4E7),
                   strokeWidth: 1.8,
                 ),
               ),
@@ -362,25 +453,25 @@ class _HomeScreenState extends State<HomeScreen>
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        color: const Color(0xFF121214),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF27272A)),
       ),
       child: Column(
         children: [
           Icon(Icons.wifi_find,
-              color: Colors.white.withValues(alpha: 0.2), size: 36),
+              color: const Color(0xFF52525B), size: 32),
           const SizedBox(height: 12),
           const Text(
             'Scanning local network…',
-            style: TextStyle(color: Colors.white54, fontSize: 14),
+            style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 14),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Make sure TeleLens is running on\nyour laptop and both are on the same Wi-Fi.',
+          const Text(
+            'Make sure TeleLens is open on your laptop\nand both devices are on the same Wi-Fi.',
             textAlign: TextAlign.center,
             style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.25), fontSize: 12),
+                color: Color(0xFF71717A), fontSize: 12),
           ),
         ],
       ),
@@ -395,43 +486,39 @@ class _HomeScreenState extends State<HomeScreen>
           onTap: () => _connectToDevice(device),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF0A2E2F), Color(0xFF0D1F2D)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(18),
+              color: const Color(0xFF121214),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                  color: const Color(0xFF00ADB5).withValues(alpha: 0.7), width: 1.5),
+                color: const Color(0xFF3F3F46),
+                width: 1.2,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF00ADB5).withValues(alpha: 0.22),
+                  color: Colors.white.withValues(alpha: 0.08),
                   blurRadius: _glowAnim.value,
-                  spreadRadius: _glowAnim.value * 0.25,
+                  spreadRadius: _glowAnim.value * 0.15,
                 ),
               ],
             ),
             child: Row(
               children: [
-                // Icon & pulse
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xFF00ADB5).withValues(alpha: 0.12),
-                      ),
-                    ),
-                    const Icon(Icons.laptop_mac,
-                        color: Color(0xFF00ADB5), size: 28),
-                  ],
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF18181B),
+                    border: Border.all(color: const Color(0xFF27272A)),
+                  ),
+                  child: const Icon(
+                    Icons.laptop_mac,
+                    color: Color(0xFFF4F4F5),
+                    size: 22,
+                  ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
                 // Device details
                 Expanded(
                   child: Column(
@@ -440,7 +527,7 @@ class _HomeScreenState extends State<HomeScreen>
                       Text(
                         device.name,
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: Color(0xFFF4F4F5),
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -449,20 +536,20 @@ class _HomeScreenState extends State<HomeScreen>
                       Text(
                         device.host,
                         style: const TextStyle(
-                            color: Color(0xFF00ADB5),
+                            color: Color(0xFFA1A1AA),
                             fontSize: 12,
                             fontFamily: 'monospace'),
                       ),
                     ],
                   ),
                 ),
-                // CTA Arrow
+                // CTA Button
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 9),
+                      horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00ADB5),
-                    borderRadius: BorderRadius.circular(10),
+                    color: const Color(0xFFE4E4E7),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -470,12 +557,12 @@ class _HomeScreenState extends State<HomeScreen>
                       Text(
                         'Connect',
                         style: TextStyle(
-                            color: Colors.black,
+                            color: Color(0xFF09090B),
                             fontWeight: FontWeight.bold,
                             fontSize: 13),
                       ),
                       SizedBox(width: 4),
-                      Icon(Icons.arrow_forward, color: Colors.black, size: 16),
+                      Icon(Icons.arrow_forward, color: Color(0xFF09090B), size: 15),
                     ],
                   ),
                 ),
@@ -495,19 +582,17 @@ class _HomeScreenState extends State<HomeScreen>
         // USB Connect
         _buildFallbackTile(
           icon: Icons.usb_rounded,
-          title: '⚡  USB Cable (Lowest Latency)',
-          subtitle: 'Plug in your phone & tap. Zero Wi-Fi jitter.',
+          title: 'USB Cable (Zero Latency)',
+          subtitle: 'Plug in via USB. Uses automatic ADB channel.',
           onTap: _connectUSB,
-          accentColor: const Color(0xFF9B59B6),
         ),
         const SizedBox(height: 10),
         // QR Scan
         _buildFallbackTile(
           icon: Icons.qr_code_scanner,
           title: 'Scan QR Code',
-          subtitle: 'Tap "Pair Device" on the laptop dashboard.',
+          subtitle: 'Pair using camera and QR on your laptop.',
           onTap: () => setState(() => _showQrScanner = true),
-          accentColor: const Color(0xFF2980B9),
         ),
         const SizedBox(height: 10),
         // Manual IP
@@ -521,27 +606,27 @@ class _HomeScreenState extends State<HomeScreen>
     required String title,
     required String subtitle,
     required VoidCallback onTap,
-    required Color accentColor,
   }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A2E),
+          color: const Color(0xFF121214),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+          border: Border.all(color: const Color(0xFF27272A)),
         ),
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: accentColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF18181B),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF27272A)),
               ),
-              child: Icon(icon, color: accentColor, size: 22),
+              child: Icon(icon, color: const Color(0xFFE4E4E7), size: 20),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -550,17 +635,17 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Text(title,
                       style: const TextStyle(
-                          color: Colors.white,
+                          color: Color(0xFFF4F4F5),
                           fontWeight: FontWeight.w600,
                           fontSize: 14)),
                   const SizedBox(height: 2),
                   Text(subtitle,
-                      style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
+                      style: const TextStyle(
+                          color: Color(0xFFA1A1AA), fontSize: 12)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.white.withValues(alpha: 0.25)),
+            const Icon(Icons.chevron_right, color: Color(0xFF52525B)),
           ],
         ),
       ),
@@ -571,9 +656,9 @@ class _HomeScreenState extends State<HomeScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
+        color: const Color(0xFF121214),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        border: Border.all(color: const Color(0xFF27272A)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -581,7 +666,7 @@ class _HomeScreenState extends State<HomeScreen>
           const Text(
             'Manual IP Address',
             style: TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                color: Color(0xFFF4F4F5), fontWeight: FontWeight.w600, fontSize: 14),
           ),
           const SizedBox(height: 10),
           Row(
@@ -590,16 +675,24 @@ class _HomeScreenState extends State<HomeScreen>
                 child: TextField(
                   controller: _ipController,
                   keyboardType: TextInputType.number,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  style: const TextStyle(color: Color(0xFFF4F4F5), fontSize: 14),
                   decoration: InputDecoration(
                     hintText: '192.168.1.50',
-                    hintStyle: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.25), fontSize: 14),
+                    hintStyle: const TextStyle(
+                        color: Color(0xFF52525B), fontSize: 14),
                     filled: true,
-                    fillColor: const Color(0xFF0D0D1A),
+                    fillColor: const Color(0xFF18181B),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
+                      borderSide: const BorderSide(color: Color(0xFF27272A)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF27272A)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF52525B)),
                     ),
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 12),
@@ -609,10 +702,10 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(width: 10),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2D3748),
-                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFFE4E4E7),
+                  foregroundColor: const Color(0xFF09090B),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
+                      horizontal: 18, vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                   elevation: 0,

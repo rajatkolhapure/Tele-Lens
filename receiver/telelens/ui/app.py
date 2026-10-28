@@ -36,6 +36,7 @@ from telelens.ui.dialogs.qr_dialog import QRCodeDialog
 from telelens.ui.dialogs.diagnostic_dialog import DiagnosticDialog
 from telelens.discovery.mdns import TeleLensMDNSService, get_local_ip_addresses
 from telelens.discovery.qr_code import generate_pairing_payload
+from telelens.discovery.adb_bridge import ADBBridge
 from telelens.driver.virtual_cam import VirtualCameraEngine
 from telelens.webrtc.signaling import SignalingServer
 from telelens.webrtc.peer import WebRTCPeerManager
@@ -77,6 +78,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             port=self.config.server.signaling_port,
             service_name=self.config.server.mdns_service_name,
         )
+        self.adb_bridge = ADBBridge(port=self.config.server.signaling_port)
         self.peer_manager = WebRTCPeerManager(
             on_frame=self._on_video_frame,
             on_telemetry=self._on_telemetry
@@ -229,7 +231,10 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         # 1. Start mDNS
         self.mdns_service.start()
 
-        # 2. Start Asyncio Background Thread for Signaling & WebRTC
+        # 2. Start ADB Cable Auto-Reversal
+        self.adb_bridge.start_auto_reverse()
+
+        # 3. Start Asyncio Background Thread for Signaling & WebRTC
         self._async_loop = asyncio.new_event_loop()
 
         async def async_approval(device_info: dict) -> bool:
@@ -268,10 +273,11 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
     def _handle_frame_received(self, frame_rgb):
         self.video_widget.update_frame(frame_rgb, fps=float(self.config.stream.fps))
-        self.status_badge.setText("STREAMING (LIVE)")
-        self.status_badge.setObjectName("StatusBadgeActive")
-        self.status_badge.style().unpolish(self.status_badge)
-        self.status_badge.style().polish(self.status_badge)
+        if self.status_badge.objectName() != "StatusBadgeActive":
+            self.status_badge.setText("STREAMING (LIVE)")
+            self.status_badge.setObjectName("StatusBadgeActive")
+            self.status_badge.style().unpolish(self.status_badge)
+            self.status_badge.style().polish(self.status_badge)
 
     def _handle_approval_dialog(self, device_info, future):
         dialog = ApprovalDialog(device_info, self)
@@ -350,6 +356,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.peer_manager.send_control(cmd)
 
     def closeEvent(self, event):
+        self.adb_bridge.stop()
         self.vcam_engine.stop()
         self.mdns_service.stop()
         event.accept()

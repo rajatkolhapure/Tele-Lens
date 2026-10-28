@@ -89,8 +89,13 @@ class VirtualCameraEngine:
                 # Validate or adapt resolution
                 h, w, c = frame_rgb.shape
                 if (w, h) != (self.width, self.height):
-                    import cv2
-                    frame_rgb = cv2.resize(frame_rgb, (self.width, self.height), interpolation=cv2.INTER_LINEAR)
+                    try:
+                        from PIL import Image
+                        pil_img = Image.fromarray(frame_rgb)
+                        resized_img = pil_img.resize((self.width, self.height), Image.Resampling.BILINEAR)
+                        frame_rgb = np.ascontiguousarray(np.array(resized_img))
+                    except Exception as resize_err:
+                        logger.warning("PIL resize failed: %s", resize_err)
 
                 self._cam.send(frame_rgb)
                 self._cam.sleep_until_next_frame()

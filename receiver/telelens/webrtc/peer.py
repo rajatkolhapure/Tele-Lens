@@ -94,8 +94,9 @@ class WebRTCPeerManager:
         try:
             while True:
                 frame = await track.recv()
-                # Convert PyAV VideoFrame to RGB numpy array
-                img_rgb = frame.to_ndarray(format="rgb24")
+                # Convert PyAV VideoFrame to an owned, contiguous RGB numpy array copy
+                # Cloned copy is mandatory to prevent dangling buffer memory corruption across threads
+                img_rgb = np.ascontiguousarray(frame.to_ndarray(format="rgb24")).copy()
                 if self.on_frame:
                     self.on_frame(img_rgb)
         except asyncio.CancelledError:

@@ -100,11 +100,15 @@ class _ScannerViewState extends State<ScannerView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF12121E),
+      backgroundColor: const Color(0xFF09090B),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: const Text("Connect to TeleLens Studio", style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF121214),
+        title: const Text(
+          "Connect to TeleLens Studio",
+          style: TextStyle(color: Color(0xFFF4F4F5), fontWeight: FontWeight.bold),
+        ),
         elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFFF4F4F5)),
       ),
       body: Column(
         children: [
@@ -119,7 +123,7 @@ class _ScannerViewState extends State<ScannerView> {
                   width: 250,
                   height: 250,
                   decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFF00ADB5), width: 3),
+                    border: Border.all(color: const Color(0xFFE4E4E7), width: 2.5),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
@@ -127,7 +131,7 @@ class _ScannerViewState extends State<ScannerView> {
                   Container(
                     color: Colors.black54,
                     child: const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF00ADB5)),
+                      child: CircularProgressIndicator(color: Color(0xFFE4E4E7)),
                     ),
                   ),
               ],
@@ -140,7 +144,7 @@ class _ScannerViewState extends State<ScannerView> {
             child: Container(
               padding: const EdgeInsets.all(20),
               decoration: const BoxDecoration(
-                color: Color(0xFF1E1E2E),
+                color: Color(0xFF121214),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
@@ -148,14 +152,18 @@ class _ScannerViewState extends State<ScannerView> {
                 children: [
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00ADB5),
-                      foregroundColor: const Color(0xFF12121E),
+                      backgroundColor: const Color(0xFFE4E4E7),
+                      foregroundColor: const Color(0xFF09090B),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
                     ),
                     onPressed: _connectUSB,
                     icon: const Icon(Icons.usb, size: 22),
-                    label: const Text("⚡ One-Click USB ADB Connect", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    label: const Text(
+                      "USB Cable Connect",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -163,13 +171,24 @@ class _ScannerViewState extends State<ScannerView> {
                       Expanded(
                         child: TextField(
                           controller: _ipController,
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(color: Color(0xFFF4F4F5)),
                           decoration: InputDecoration(
                             hintText: "Enter Laptop IP (e.g. 192.168.1.50)",
-                            hintStyle: const TextStyle(color: Colors.white38),
+                            hintStyle: const TextStyle(color: Color(0xFF52525B)),
                             filled: true,
-                            fillColor: const Color(0xFF12121E),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                            fillColor: const Color(0xFF18181B),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(color: Color(0xFF27272A)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(color: Color(0xFF27272A)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(color: Color(0xFF52525B)),
+                            ),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           ),
                         ),
@@ -177,12 +196,15 @@ class _ScannerViewState extends State<ScannerView> {
                       const SizedBox(width: 10),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2D3748),
+                          backgroundColor: const Color(0xFF18181B),
+                          foregroundColor: const Color(0xFFF4F4F5),
+                          side: const BorderSide(color: Color(0xFF27272A)),
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 0,
                         ),
                         onPressed: _connectManual,
-                        child: const Text("Connect", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        child: const Text("Connect", style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),

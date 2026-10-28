@@ -15,11 +15,17 @@ class WebRTCService {
 
   final ControlCallback? onRemoteControl;
   final ValueChanged<bool>? onConnectionStateChanged;
+  final ValueChanged<MediaStream>? onStreamReady;
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
+  MediaStream? get localStream => _localStream;
 
-  WebRTCService({this.onRemoteControl, this.onConnectionStateChanged});
+  WebRTCService({
+    this.onRemoteControl,
+    this.onConnectionStateChanged,
+    this.onStreamReady,
+  });
 
   Future<void> connect(String wsUrl, {String deviceName = "Smartphone"}) async {
     final uri = Uri.parse(wsUrl);
@@ -103,6 +109,7 @@ class WebRTCService {
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+    onStreamReady?.call(_localStream!);
 
     for (var track in _localStream!.getTracks()) {
       await _peerConnection!.addTrack(track, _localStream!);

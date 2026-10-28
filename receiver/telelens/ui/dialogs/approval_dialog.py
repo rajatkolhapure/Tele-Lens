@@ -33,7 +33,7 @@ class ApprovalDialog(QDialog if PYQT6_AVAILABLE else object):
 
         title = QLabel("Device Connection Request")
         title.setObjectName("HeaderTitle")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #00ADB5;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F4F4F5;")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -44,7 +44,7 @@ class ApprovalDialog(QDialog if PYQT6_AVAILABLE else object):
 
         # Card container for device details
         card = QFrame()
-        card.setStyleSheet("background-color: #1E1E2E; border-radius: 6px; padding: 12px;")
+        card.setStyleSheet("background-color: #121214; border: 1px solid #27272A; border-radius: 8px; padding: 12px;")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(10, 10, 10, 10)
 

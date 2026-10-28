@@ -30,22 +30,22 @@ class DiagnosticDialog(QDialog if PYQT6_AVAILABLE else object):
         layout.setSpacing(14)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        title = QLabel("Virtual Camera Driver Status")
+        title = QLabel("System & Driver Diagnostics")
         title.setObjectName("HeaderTitle")
         layout.addWidget(title)
 
         result = DriverDiagnostics.run_all()
 
         status_card = QFrame()
-        status_card.setStyleSheet("background-color: #1E1E2E; border-radius: 6px; padding: 10px;")
+        status_card.setStyleSheet("background-color: #121214; border: 1px solid #27272A; border-radius: 8px; padding: 12px;")
         card_layout = QVBoxLayout(status_card)
 
         if result.driver_found:
-            status_text = f"<b style='color:#68D391;'>[READY] {result.driver_name} Detected</b><br/>" \
+            status_text = f"<b style='color:#E4E4E7;'>[READY] {result.driver_name} Detected</b><br/>" \
                           f"Backend: <code>{result.backend}</code><br/>" \
                           f"{result.details}"
         else:
-            status_text = f"<b style='color:#FC8181;'>[MISSING] Virtual Camera Driver Not Found</b><br/>" \
+            status_text = f"<b style='color:#F87171;'>[MISSING] Virtual Camera Driver Not Found</b><br/>" \
                           f"{result.details}"
 
         status_lbl = QLabel(status_text)
