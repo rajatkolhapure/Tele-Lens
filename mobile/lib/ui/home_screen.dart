@@ -293,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen>
             child: Text(
               'OTHER WAYS TO CONNECT',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.3),
+                color: Colors.white.withValues(alpha: 0.3),
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.5,
@@ -364,12 +364,12 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A2E),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Column(
         children: [
           Icon(Icons.wifi_find,
-              color: Colors.white.withOpacity(0.2), size: 36),
+              color: Colors.white.withValues(alpha: 0.2), size: 36),
           const SizedBox(height: 12),
           const Text(
             'Scanning local network…',
@@ -380,7 +380,7 @@ class _HomeScreenState extends State<HomeScreen>
             'Make sure TeleLens is running on\nyour laptop and both are on the same Wi-Fi.',
             textAlign: TextAlign.center,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.25), fontSize: 12),
+                color: Colors.white.withValues(alpha: 0.25), fontSize: 12),
           ),
         ],
       ),
@@ -404,10 +404,10 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                  color: const Color(0xFF00ADB5).withOpacity(0.7), width: 1.5),
+                  color: const Color(0xFF00ADB5).withValues(alpha: 0.7), width: 1.5),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF00ADB5).withOpacity(0.22),
+                  color: const Color(0xFF00ADB5).withValues(alpha: 0.22),
                   blurRadius: _glowAnim.value,
                   spreadRadius: _glowAnim.value * 0.25,
                 ),
@@ -424,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen>
                       height: 52,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF00ADB5).withOpacity(0.12),
+                        color: const Color(0xFF00ADB5).withValues(alpha: 0.12),
                       ),
                     ),
                     const Icon(Icons.laptop_mac,
@@ -530,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen>
         decoration: BoxDecoration(
           color: const Color(0xFF1A1A2E),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(0.07)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
         ),
         child: Row(
           children: [
@@ -538,7 +538,7 @@ class _HomeScreenState extends State<HomeScreen>
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: accentColor.withOpacity(0.15),
+                color: accentColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: accentColor, size: 22),
@@ -556,11 +556,11 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 2),
                   Text(subtitle,
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                          color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.white.withOpacity(0.25)),
+            Icon(Icons.chevron_right, color: Colors.white.withValues(alpha: 0.25)),
           ],
         ),
       ),
@@ -573,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A2E),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.07)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -594,7 +594,7 @@ class _HomeScreenState extends State<HomeScreen>
                   decoration: InputDecoration(
                     hintText: '192.168.1.50',
                     hintStyle: TextStyle(
-                        color: Colors.white.withOpacity(0.25), fontSize: 14),
+                        color: Colors.white.withValues(alpha: 0.25), fontSize: 14),
                     filled: true,
                     fillColor: const Color(0xFF0D0D1A),
                     border: OutlineInputBorder(

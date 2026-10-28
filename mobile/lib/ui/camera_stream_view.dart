@@ -96,7 +96,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
           // Thermal Saver Dimming Layer
           if (_thermalSaverActive)
             Container(
-              color: Colors.black.withOpacity(0.95),
+              color: Colors.black.withValues(alpha: 0.95),
               child: const Center(
                 child: Text(
                   "Thermal Saver Mode Active\nTap screen to brighten",
@@ -135,7 +135,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.8),
+                    color: Colors.redAccent.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(

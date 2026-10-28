@@ -1,0 +1,8 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Treat deprecation warnings as info, not errors, so future SDK updates
+    # don't immediately break CI — update call-sites incrementally.
+    deprecated_member_use: info
+    deprecated_member_use_from_same_package: info
