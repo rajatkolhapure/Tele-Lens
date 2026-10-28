@@ -68,8 +68,8 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Working
 
 [Run]
 ; ── Register Virtual Camera DLLs ─────────────────────────────────────────────
-Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{sys}\obs-virtualcam-startup.dll"""; StatusMsg: "Registering virtual webcam driver..."; Tasks: registervcam; Flags: 64bit runhidden waituntilterminated
-Filename: "{syswow64}\regsvr32.exe"; Parameters: "/s ""{syswow64}\obs-virtualcam-startup-32bit.dll"""; StatusMsg: "Registering 32-bit virtual webcam driver..."; Tasks: registervcam; Check: IsWin64; Flags: 32bit runhidden waituntilterminated
+Filename: "{sys}\regsvr32.exe"; Parameters: "/i /s ""{sys}\obs-virtualcam-startup.dll"""; StatusMsg: "Registering virtual webcam driver..."; Tasks: registervcam; Flags: 64bit runhidden waituntilterminated
+Filename: "{syswow64}\regsvr32.exe"; Parameters: "/i /s ""{syswow64}\obs-virtualcam-startup-32bit.dll"""; StatusMsg: "Registering 32-bit virtual webcam driver..."; Tasks: registervcam; Check: IsWin64; Flags: 32bit runhidden waituntilterminated
 
 ; ── Launch App After Install ─────────────────────────────────────────────────
 Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

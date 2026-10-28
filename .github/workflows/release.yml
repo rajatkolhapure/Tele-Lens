@@ -45,27 +45,22 @@ jobs:
           pip install -e receiver
           pip install pyinstaller
 
-      # ── Verify installer icon and prepare driver binaries ────────────────
+      # ── Verify installer icon and driver binaries ────────────────────────
       - name: Verify installer assets and driver binaries
         shell: pwsh
         run: |
           if (-not (Test-Path "installer\assets\telelens.ico")) {
             throw "Missing installer icon: installer\assets\telelens.ico"
           }
-          New-Item -ItemType Directory -Force installer\drivers\obs-virtualcam | Out-Null
-          
-          # Fetch real OBS VirtualCam DLLs if not already present in the workspace
           $dll64 = "installer\drivers\obs-virtualcam\obs-virtualcam-startup.dll"
           $dll32 = "installer\drivers\obs-virtualcam\obs-virtualcam-startup-32bit.dll"
-          
           if (-not (Test-Path $dll64) -or (Get-Item $dll64).Length -eq 0) {
-            Write-Host "Downloading 64-bit OBS VirtualCam filter..."
-            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/CatxFish/obs-virtual-cam/master/bin/obs-virtualcam-startup.dll" -OutFile $dll64 -ErrorAction SilentlyContinue
+            throw "Missing or 0-byte 64-bit driver binary: $dll64"
           }
           if (-not (Test-Path $dll32) -or (Get-Item $dll32).Length -eq 0) {
-            Write-Host "Downloading 32-bit OBS VirtualCam filter..."
-            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/CatxFish/obs-virtual-cam/master/bin/obs-virtualcam-startup-32bit.dll" -OutFile $dll32 -ErrorAction SilentlyContinue
+            throw "Missing or 0-byte 32-bit driver binary: $dll32"
           }
+          Write-Host "Driver binaries verified successfully."
 
       - name: Build one-folder PyInstaller bundle
         working-directory: receiver
@@ -116,7 +111,12 @@ jobs:
 
       - name: Analyze Dart code
         working-directory: mobile
-        run: flutter analyze --no-fatal-warnings
+        run: |
+          flutter analyze --no-fatal-warnings 2>&1 | tee /tmp/flutter_analyze.log || true
+          if grep -E "^  error •" /tmp/flutter_analyze.log; then
+            echo "ERRORS FOUND — see above"
+            exit 1
+          fi
 
       - name: Run Flutter unit tests
         if: ${{ hashFiles('mobile/test/**/*_test.dart') != '' }}
