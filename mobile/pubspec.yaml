@@ -16,12 +16,14 @@ dependencies:
   battery_plus: ^6.0.2
   mobile_scanner: ^5.2.3
   web_socket_channel: ^3.0.1
-  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+
+dependency_overrides:
+  package_info_plus: 8.3.1
 
 flutter:
   uses-material-design: true
