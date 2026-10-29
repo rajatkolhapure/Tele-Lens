@@ -85,8 +85,10 @@ class SignalingServer:
 
             logger.info("Incoming connection request from %s (%s, %s)", device_name, device_os, stream_profile)
 
+            # Auto-approve USB cable tethered sessions for immediate zero-friction connect
+            is_usb = 'usb' in stream_profile.lower() or 'usb' in device_name.lower()
             approved = True
-            if self.require_approval and self.approval_callback is not None:
+            if self.require_approval and self.approval_callback is not None and not is_usb:
                 approved = await self.approval_callback(payload)
 
             if approved:

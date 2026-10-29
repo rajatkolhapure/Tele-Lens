@@ -234,8 +234,8 @@ class WebRTCService {
       debugPrint("Strict getUserMedia constraints failed ($e), falling back to flexible ideal constraints");
       final targetMin = min(_currentWidth, _currentHeight);
       final targetMax = max(_currentWidth, _currentHeight);
-      final reqWidth = (_currentWidth == _currentHeight) ? _currentWidth : (_isPortraitSensor ? targetMin : targetMax);
-      final reqHeight = (_currentWidth == _currentHeight) ? _currentHeight : (_isPortraitSensor ? targetMax : targetMin);
+      final reqWidth = (_currentWidth == _currentHeight) ? _currentWidth : targetMax;
+      final reqHeight = (_currentWidth == _currentHeight) ? _currentHeight : targetMin;
 
       final fallbackConstraints = <String, dynamic>{
         'audio': true,
@@ -308,8 +308,8 @@ class WebRTCService {
         debugPrint("Strict constraints failed, using flexible ideal bounds: $e");
         final targetMin = min(newWidth, newHeight);
         final targetMax = max(newWidth, newHeight);
-        final reqWidth = (newWidth == newHeight) ? newWidth : (_isPortraitSensor ? targetMin : targetMax);
-        final reqHeight = (newWidth == newHeight) ? newHeight : (_isPortraitSensor ? targetMax : targetMin);
+        final reqWidth = (newWidth == newHeight) ? newWidth : targetMax;
+        final reqHeight = (newWidth == newHeight) ? newHeight : targetMin;
 
         final fallback = <String, dynamic>{
           'audio': false,
