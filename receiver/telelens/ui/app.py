@@ -1,7 +1,8 @@
 """
 TeleLens Desktop Studio Dashboard.
 Modern glassmorphism UI matching the Studio Pro mobile client with real-time digital magnification,
-bidirectional remote controls, dual-channel command redundancy, and virtual camera publisher.
+bidirectional remote controls, dual-channel command redundancy, USB Turbo frame transport,
+and virtual camera publisher.
 """
 
 import sys
@@ -43,6 +44,7 @@ from telelens.discovery.adb_bridge import ADBBridge
 from telelens.driver.virtual_cam import VirtualCameraEngine
 from telelens.webrtc.signaling import SignalingServer
 from telelens.webrtc.peer import WebRTCPeerManager
+from telelens.stream.turbo_server import TurboStreamServer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("telelens.app")
@@ -56,6 +58,7 @@ class AppBridge(QObject if PYQT6_AVAILABLE else object):
         telemetry_updated = pyqtSignal(dict)
         remote_control_received = pyqtSignal(str, dict)
         client_disconnected = pyqtSignal()
+        protocol_detected = pyqtSignal(str)
 
 
 class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
@@ -74,6 +77,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.current_zoom = 1.0
         self.mirror_preview = False
         self.stepper_buttons = []
+        self.active_protocol = "None"
 
         # Engines
         self.vcam_engine = VirtualCameraEngine(
@@ -86,12 +90,22 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             port=self.config.server.signaling_port,
             service_name=self.config.server.mdns_service_name,
         )
-        self.adb_bridge = ADBBridge(port=self.config.server.signaling_port)
+        self.adb_bridge = ADBBridge(
+            port=self.config.server.signaling_port,
+            stream_port=self.config.server.direct_stream_port,
+        )
         self.peer_manager = WebRTCPeerManager(
-            on_frame=self._on_video_frame,
+            on_frame=self._on_webrtc_frame,
             on_telemetry=self._on_telemetry,
             on_remote_disconnect=self._on_client_disconnect,
             on_remote_control=self._on_remote_control
+        )
+        self.turbo_server = TurboStreamServer(
+            host=self.config.server.host,
+            port=self.config.server.direct_stream_port,
+            on_frame=self._on_turbo_frame,
+            on_connect=self._on_turbo_connect,
+            on_disconnect=self._on_turbo_disconnect,
         )
 
         self.signaling_server: Optional[SignalingServer] = None
@@ -127,12 +141,19 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.status_badge = QLabel("WAITING FOR DEVICE")
         self.status_badge.setObjectName("StatusBadge")
 
+        self.protocol_badge = QLabel("BUS: USB/WI-FI AUTO")
+        self.protocol_badge.setStyleSheet(
+            "background-color: #27272A; color: #A1A1AA; font-size: 11px; "
+            "font-weight: 700; padding: 4px 8px; border-radius: 6px;"
+        )
+
         self.battery_badge = QLabel("🔋 --%")
         self.battery_badge.setObjectName("BatteryBadge")
         self.battery_badge.setVisible(False)
 
         top_bar.addWidget(title_lbl)
         top_bar.addWidget(self.status_badge)
+        top_bar.addWidget(self.protocol_badge)
         top_bar.addWidget(self.battery_badge)
         top_bar.addStretch()
 
@@ -196,6 +217,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         profile_layout.addWidget(profile_title)
 
         self.quality_combo = QComboBox()
+        self.quality_combo.addItem("1088x1088 Square HD (1:1 Creator Studio) @ 30 FPS • 25 Mbps", (1088, 1088, 30))
+        self.quality_combo.addItem("1088x1088 Square HD (1:1 Creator Studio) @ 60 FPS • 35 Mbps", (1088, 1088, 60))
         self.quality_combo.addItem("1080p FHD (1920x1080) @ 60 FPS • 18 Mbps", (1920, 1080, 60))
         self.quality_combo.addItem("1080p FHD (1920x1080) @ 30 FPS • 14 Mbps", (1920, 1080, 30))
         self.quality_combo.addItem("4K UHD (3840x2160) @ 30 FPS • 35 Mbps", (3840, 2160, 30))
@@ -329,6 +352,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.bridge.telemetry_updated.connect(self._handle_telemetry_ui)
         self.bridge.remote_control_received.connect(self._handle_remote_control_ui)
         self.bridge.client_disconnected.connect(self._handle_client_disconnected)
+        self.bridge.protocol_detected.connect(self._handle_protocol_detected)
 
     def _start_services(self):
         self.mdns_service.start()
@@ -354,6 +378,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         def run_loop():
             asyncio.set_event_loop(self._async_loop)
             self._async_loop.run_until_complete(self.signaling_server.start())
+            self._async_loop.run_until_complete(self.turbo_server.start())
             self._async_loop.run_forever()
 
         self._async_thread = threading.Thread(target=run_loop, daemon=True)
@@ -372,6 +397,24 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
                 self._async_loop
             )
 
+    def _on_turbo_connect(self, client_info: str):
+        self.bridge.protocol_detected.emit("USB Turbo Pipe")
+
+    def _on_turbo_disconnect(self):
+        if self.active_protocol == "USB Turbo Pipe":
+            self.bridge.client_disconnected.emit()
+
+    def _on_turbo_frame(self, frame_rgb: np.ndarray):
+        if self.active_protocol != "USB Turbo Pipe":
+            self.bridge.protocol_detected.emit("USB Turbo Pipe")
+        self._on_video_frame(frame_rgb)
+
+    def _on_webrtc_frame(self, frame_rgb: np.ndarray):
+        if self.active_protocol != "USB Turbo Pipe":
+            if self.active_protocol != "WebRTC Studio":
+                self.bridge.protocol_detected.emit("WebRTC Studio")
+            self._on_video_frame(frame_rgb)
+
     def _on_video_frame(self, frame_rgb: np.ndarray):
         # Apply Digital Magnification
         if self.current_zoom > 1.01:
@@ -382,10 +425,15 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
                 y1 = (h - crop_h) // 2
                 x1 = (w - crop_w) // 2
                 cropped = frame_rgb[y1:y1 + crop_h, x1:x1 + crop_w]
-                from PIL import Image
-                pil_img = Image.fromarray(cropped)
-                resized_img = pil_img.resize((w, h), Image.Resampling.BILINEAR)
-                frame_rgb = np.ascontiguousarray(np.array(resized_img))
+                try:
+                    import cv2
+                    resized_img = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+                    frame_rgb = np.ascontiguousarray(resized_img)
+                except ImportError:
+                    from PIL import Image
+                    pil_img = Image.fromarray(cropped)
+                    resized_img = pil_img.resize((w, h), Image.Resampling.BILINEAR)
+                    frame_rgb = np.ascontiguousarray(np.array(resized_img))
             except Exception as e:
                 logger.debug("Digital magnification error: %s", e)
 
@@ -404,6 +452,21 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
     def _on_client_disconnect(self):
         self.bridge.client_disconnected.emit()
+
+    def _handle_protocol_detected(self, protocol_name: str):
+        self.active_protocol = protocol_name
+        if protocol_name == "USB Turbo Pipe":
+            self.protocol_badge.setText("⚡ USB TURBO (ZERO-THROTTLE)")
+            self.protocol_badge.setStyleSheet(
+                "background-color: #064E3B; color: #34D399; font-size: 11px; "
+                "font-weight: 800; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;"
+            )
+        else:
+            self.protocol_badge.setText("📶 WEBRTC STUDIO")
+            self.protocol_badge.setStyleSheet(
+                "background-color: #1E3A8A; color: #93C5FD; font-size: 11px; "
+                "font-weight: 800; padding: 4px 10px; border-radius: 6px; border: 1px solid #2563EB;"
+            )
 
     def _handle_frame_received(self, frame_rgb):
         self.video_widget.update_frame(frame_rgb, fps=float(self.config.stream.fps))
@@ -453,14 +516,21 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.peer_manager.disconnect_peer()
         if self._async_loop and self._async_loop.is_running():
             asyncio.run_coroutine_threadsafe(self.peer_manager.close(), self._async_loop)
+            asyncio.run_coroutine_threadsafe(self.turbo_server.stop(), self._async_loop)
         self._handle_client_disconnected()
 
     def _handle_client_disconnected(self):
+        self.active_protocol = "None"
         self.video_widget.set_disconnected()
         self.status_badge.setText("WAITING FOR DEVICE")
         self.status_badge.setObjectName("StatusBadge")
         self.status_badge.style().unpolish(self.status_badge)
         self.status_badge.style().polish(self.status_badge)
+        self.protocol_badge.setText("BUS: USB/WI-FI AUTO")
+        self.protocol_badge.setStyleSheet(
+            "background-color: #27272A; color: #A1A1AA; font-size: 11px; "
+            "font-weight: 700; padding: 4px 8px; border-radius: 6px;"
+        )
         self.battery_badge.setVisible(False)
         self.disconnect_btn.setEnabled(False)
         self.torch_btn.setChecked(False)
@@ -553,6 +623,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.adb_bridge.stop()
         self.vcam_engine.stop()
         self.mdns_service.stop()
+        if self._async_loop and self._async_loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.turbo_server.stop(), self._async_loop)
         event.accept()
 
 

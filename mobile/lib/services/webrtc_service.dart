@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -23,8 +24,8 @@ class WebRTCService {
   MediaStream? get localStream => _localStream;
 
   String _currentFacingMode = 'environment';
-  int _currentWidth = 1920;
-  int _currentHeight = 1080;
+  int _currentWidth = 1088;
+  int _currentHeight = 1088;
   int _currentFps = 30;
   bool _isPortraitSensor = true;
 
@@ -60,7 +61,7 @@ class WebRTCService {
       "payload": {
         "device_name": deviceName,
         "os": defaultTargetPlatform.name,
-        "stream_profile": "1080p 30fps"
+        "stream_profile": "1088x1088 Studio Turbo"
       }
     });
     _wsChannel!.sink.add(helloMsg);
@@ -94,6 +95,9 @@ class WebRTCService {
   }
 
   int _calculateBitrate(int width, int height, int fps) {
+    if (width == 1088 && height == 1088) {
+      return (fps >= 60) ? 35000000 : 25000000;
+    }
     final maxDim = max(width, height);
     if (maxDim >= 3840) {
       return 35000000; // 35 Mbps for 4K UHD
@@ -104,7 +108,7 @@ class WebRTCService {
     } else if (maxDim >= 1920) {
       return 14000000; // 14 Mbps for 1080p 30FPS
     }
-    return 8000000; // 8 Mbps for 720p
+    return 12000000; // 12 Mbps baseline
   }
 
   Future<void> _optimizeSenderEncodings() async {
@@ -117,13 +121,14 @@ class WebRTCService {
           final targetBitrate = _calculateBitrate(_currentWidth, _currentHeight, _currentFps);
           for (var enc in params.encodings ?? []) {
             enc.maxBitrate = targetBitrate;
-            enc.minBitrate = 4000000; // 4 Mbps floor prevents downscaling to 360p
+            enc.minBitrate = 20000000; // 20 Mbps floor prevents WebRTC GCC downscaling
             enc.maxFramerate = _currentFps;
+            enc.scaleResolutionDownBy = 1.0;
             enc.networkPriority = 1;
           }
           params.degradationPreference = RTCDegradationPreference.MAINTAIN_RESOLUTION;
           await sender.setParameters(params);
-          debugPrint("Sender encodings optimized: $targetBitrate bps @ $_currentFps FPS");
+          debugPrint("Sender encodings optimized: $targetBitrate bps @ $_currentFps FPS (floor 20Mbps)");
         }
       }
     } catch (e) {
@@ -139,15 +144,15 @@ class WebRTCService {
       if (lines[i].startsWith("m=video")) {
         inVideoSection = true;
         output.add(lines[i]);
-        output.add("b=AS:45000");
-        output.add("b=TIAS:45000000");
+        output.add("b=AS:50000");
+        output.add("b=TIAS:50000000");
         continue;
       } else if (lines[i].startsWith("m=audio") || lines[i].startsWith("m=application")) {
         inVideoSection = false;
       }
 
       if (inVideoSection && lines[i].startsWith("a=fmtp:")) {
-        output.add("${lines[i]};x-google-min-bitrate=6000;x-google-start-bitrate=20000;x-google-max-bitrate=50000");
+        output.add("${lines[i]};x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000");
       } else {
         output.add(lines[i]);
       }
@@ -156,6 +161,22 @@ class WebRTCService {
   }
 
   Map<String, dynamic> _buildMediaConstraints(int width, int height, int fps, String facingMode) {
+    if (width == height) {
+      // 1:1 Square Creator resolution (e.g. 1088x1088)
+      return <String, dynamic>{
+        'audio': true,
+        'video': {
+          'mandatory': {
+            'minWidth': '$width',
+            'minHeight': '$height',
+            'minFrameRate': '$fps',
+          },
+          'facingMode': facingMode,
+          'optional': [],
+        }
+      };
+    }
+
     // Determine proper dimension assignment for phone camera sensor
     final targetMin = min(width, height);
     final targetMax = max(width, height);
@@ -213,14 +234,14 @@ class WebRTCService {
       debugPrint("Strict getUserMedia constraints failed ($e), falling back to flexible ideal constraints");
       final targetMin = min(_currentWidth, _currentHeight);
       final targetMax = max(_currentWidth, _currentHeight);
-      final reqWidth = _isPortraitSensor ? targetMin : targetMax;
-      final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+      final reqWidth = (_currentWidth == _currentHeight) ? _currentWidth : (_isPortraitSensor ? targetMin : targetMax);
+      final reqHeight = (_currentWidth == _currentHeight) ? _currentHeight : (_isPortraitSensor ? targetMax : targetMin);
 
       final fallbackConstraints = <String, dynamic>{
         'audio': true,
         'video': {
-          'width': {'ideal': reqWidth},
-          'height': {'ideal': reqHeight},
+          'width': {'ideal': reqWidth, 'min': reqWidth},
+          'height': {'ideal': reqHeight, 'min': reqHeight},
           'frameRate': {'ideal': _currentFps},
           'facingMode': _currentFacingMode,
         }
@@ -287,14 +308,14 @@ class WebRTCService {
         debugPrint("Strict constraints failed, using flexible ideal bounds: $e");
         final targetMin = min(newWidth, newHeight);
         final targetMax = max(newWidth, newHeight);
-        final reqWidth = _isPortraitSensor ? targetMin : targetMax;
-        final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+        final reqWidth = (newWidth == newHeight) ? newWidth : (_isPortraitSensor ? targetMin : targetMax);
+        final reqHeight = (newWidth == newHeight) ? newHeight : (_isPortraitSensor ? targetMax : targetMin);
 
         final fallback = <String, dynamic>{
           'audio': false,
           'video': {
-            'width': {'ideal': reqWidth},
-            'height': {'ideal': reqHeight},
+            'width': {'ideal': reqWidth, 'min': reqWidth},
+            'height': {'ideal': reqHeight, 'min': reqHeight},
             'frameRate': {'ideal': newFps},
             'facingMode': newFacing,
           }
@@ -336,6 +357,17 @@ class WebRTCService {
     } catch (e) {
       debugPrint("Failed to reacquire video track: $e");
       return false;
+    }
+  }
+
+  Future<ByteBuffer?> captureFrame() async {
+    final track = videoTrack;
+    if (track == null) return null;
+    try {
+      return await track.captureFrame();
+    } catch (e) {
+      debugPrint("Frame capture error: $e");
+      return null;
     }
   }
 

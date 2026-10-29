@@ -1,6 +1,7 @@
 """
 TeleLens Virtual Camera Output Engine.
 Encapsulates pyvirtualcam frame publishing, resolution adaptation, and color format conversions.
+Optimized with hardware/SIMD OpenCV acceleration for zero-latency publishing.
 """
 
 import logging
@@ -9,6 +10,12 @@ from typing import Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 try:
     import pyvirtualcam
@@ -20,7 +27,7 @@ except ImportError:
 
 
 class VirtualCameraEngine:
-    """Manages publishing raw video frames to the OS virtual camera driver."""
+    """Manages publishing raw video frames to the OS virtual camera driver with ultra-low latency."""
 
     def __init__(self, width: int = 1920, height: int = 1080, fps: int = 30, backend: str = "auto"):
         self.width = width
@@ -88,26 +95,28 @@ class VirtualCameraEngine:
     def send_frame(self, frame_rgb: np.ndarray) -> bool:
         """
         Sends an RGB numpy array frame (H, W, 3) to the virtual camera.
-        Automatically resizes if input dimensions differ from the virtual camera buffer.
+        High-speed adaptation using OpenCV SIMD without blocking sleeps.
         """
         with self._lock:
             if not self._is_running or self._cam is None:
                 return False
 
             try:
-                # Validate or adapt resolution
-                h, w, c = frame_rgb.shape
+                h, w = frame_rgb.shape[:2]
                 if (w, h) != (self.width, self.height):
-                    try:
+                    if CV2_AVAILABLE:
+                        interpolation = cv2.INTER_AREA if (w > self.width and h > self.height) else cv2.INTER_LINEAR
+                        frame_rgb = cv2.resize(frame_rgb, (self.width, self.height), interpolation=interpolation)
+                    else:
                         from PIL import Image
                         pil_img = Image.fromarray(frame_rgb)
                         resized_img = pil_img.resize((self.width, self.height), Image.Resampling.BILINEAR)
                         frame_rgb = np.ascontiguousarray(np.array(resized_img))
-                    except Exception as resize_err:
-                        logger.warning("PIL resize failed: %s", resize_err)
+
+                if not frame_rgb.flags.c_contiguous:
+                    frame_rgb = np.ascontiguousarray(frame_rgb)
 
                 self._cam.send(frame_rgb)
-                self._cam.sleep_until_next_frame()
                 self._frame_count += 1
                 return True
             except Exception as e:

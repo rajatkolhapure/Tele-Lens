@@ -94,6 +94,8 @@ class _HomeScreenState extends State<HomeScreen>
             builder: (_) => CameraStreamView(
               webrtcService: service,
               serverName: config.name,
+              isUsb: config.host == '127.0.0.1' || config.host == 'localhost',
+              host: config.host,
             ),
           ),
         );

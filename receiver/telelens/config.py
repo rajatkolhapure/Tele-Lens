@@ -26,6 +26,7 @@ class StreamConfig:
 class ServerConfig:
     host: str = "0.0.0.0"
     signaling_port: int = 8990
+    direct_stream_port: int = 8991
     mdns_service_name: str = "TeleLens-Studio"
     mdns_service_type: str = "_telelens._tcp.local."
     require_approval: bool = True

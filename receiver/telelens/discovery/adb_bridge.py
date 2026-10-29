@@ -1,6 +1,7 @@
 """
 TeleLens ADB Cable Reverse Port Forwarding Manager.
-Automatically detects ADB and configures port reversal so wired USB streaming works seamlessly.
+Automatically detects ADB and configures dual-channel port reversal (Signaling + Turbo Frame Pipe)
+so wired USB streaming works seamlessly with zero latency.
 """
 
 import os
@@ -20,8 +21,10 @@ CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 class ADBBridge:
     """Manages ADB reverse port-forwarding for USB cable connections."""
 
-    def __init__(self, port: int = 8990):
+    def __init__(self, port: int = 8990, stream_port: int = 8991):
         self.port = port
+        self.stream_port = stream_port
+        self.ports = [self.port, self.stream_port]
         self.adb_path: Optional[str] = self._locate_adb()
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -84,24 +87,29 @@ class ADBBridge:
             logger.debug("ADB list devices failed: %s", e)
             return []
 
-    def reverse_port(self) -> bool:
+    def reverse_port(self, target_port: Optional[int] = None) -> bool:
         """Executes adb reverse tcp:PORT tcp:PORT for connected devices."""
         if not self.adb_path:
             return False
-        try:
-            res = subprocess.run(
-                [self.adb_path, "reverse", f"tcp:{self.port}", f"tcp:{self.port}"],
-                capture_output=True,
-                text=True,
-                timeout=4,
-                creationflags=CREATE_NO_WINDOW,
-            )
-            if res.returncode == 0:
-                logger.info("ADB port reversed: tcp:%d -> tcp:%d", self.port, self.port)
-                return True
-        except Exception as e:
-            logger.debug("ADB reverse failed: %s", e)
-        return False
+        ports_to_reverse = [target_port] if target_port else self.ports
+        all_success = True
+        for p in ports_to_reverse:
+            try:
+                res = subprocess.run(
+                    [self.adb_path, "reverse", f"tcp:{p}", f"tcp:{p}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                    creationflags=CREATE_NO_WINDOW,
+                )
+                if res.returncode == 0:
+                    logger.info("ADB port reversed: tcp:%d -> tcp:%d", p, p)
+                else:
+                    all_success = False
+            except Exception as e:
+                logger.debug("ADB reverse port %d failed: %s", p, e)
+                all_success = False
+        return all_success
 
     def start_auto_reverse(self, interval_seconds: int = 4) -> None:
         """Starts a background monitor that ensures ADB port reverse is active."""

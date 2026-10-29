@@ -1,66 +1,79 @@
 # TeleLens Architecture Specification
 
 ## 1. Executive Summary
-TeleLens is a high-performance, open-source, watermark-free Phone-to-Laptop webcam system engineered for 4K / 1440p 60 FPS studio broadcasting and video conferencing. It decouples the mobile camera capture engine from the desktop virtual device pipeline using standard WebRTC with hardware acceleration.
+TeleLens is a high-performance, open-source, watermark-free Phone-to-Laptop webcam system engineered for 4K / 1440p / 1088x1088 Square HD studio broadcasting and video conferencing. It features a **Dual-Protocol Hybrid Architecture** that combines:
+1. **Direct USB Turbo Frame Pipe**: Dedicated zero-latency, zero-congestion-control TCP media transport over the physical USB bus (Port 8991).
+2. **WebRTC Studio Engine**: High-bitrate wireless streaming over local Wi-Fi with pinned SDP bitrates and anti-throttling resolution locks (Port 8990).
 
 ---
 
-## 2. Component Architecture
+## 2. Dual-Protocol Transport Matrix
 
-### 2.1 Mobile Application (`mobile/`)
+| Feature | Direct USB Turbo Pipe (Port 8991) | WebRTC Studio (Port 8990) |
+| :--- | :--- | :--- |
+| **Primary Medium** | Physical USB cable via ADB | Wi-Fi / Local Area Network |
+| **Warmup Delay** | **0 ms (Instant 1088x1088 from Frame 1)** | 15–30s unless SDP bitrate is pinned |
+| **Congestion Control** | None (100% fixed bitrate, zero drop) | Google Congestion Control (GCC) |
+| **Latency** | **< 20 ms end-to-end** | 50–120 ms |
+| **Transport Overhead** | Raw 22-byte header + binary payload | ICE, DTLS, SRTP, RTCP compound packets |
+| **Resolution Stability** | **Locked (1088x1088 / 1080p / 4K)** | Dynamic downscale unless locked |
+
+---
+
+## 3. Component Architecture
+
+### 3.1 Mobile Application (`mobile/`)
 - **Framework**: Flutter (Dart) with direct platform channels to Camera2 (Android) and AVFoundation (iOS).
-- **Video Pipeline**: Captures raw camera frames in 4K/1440p/1080p, feeding into the platform's hardware H.264/H.265/VP8 encoder.
-- **Audio Pipeline**: Real-time microphone capture with Opus encoding (48 kHz stereo/mono).
-- **Signaling & Discovery**:
-  - Broadcasts presence via mDNS (`_telelens._tcp`).
-  - Scans desktop QR code containing the signaling server endpoints and one-time session challenge.
-  - Automatically listens on loopback TCP port when USB ADB tethering is activated.
+- **Transport Subsystems**:
+  - `TurboStreamService`: Streams JPEG/RGB frames over TCP port 8991 directly via ADB USB reverse tunnel.
+  - `WebRTCService`: Manages WebRTC peer connection, SDP munging, and DataChannel control commands.
 - **Hardware Sensor Controller**:
+  - Dedicated **1088x1088 Square HD** profile for 1:1 streaming, portrait-mode cropping, and content creation.
   - Lens switching (Ultra-wide <0.6x>, Wide <1.0x>, Telephoto <3x/5x>, Front selfie).
-  - Manual exposure (ISO range, shutter speed, EV compensation).
-  - Manual focus (macro, distance slider, auto-focus lock).
-  - White balance presets & manual Kelvin temperature.
-  - Flashlight / Torch toggle.
-  - Thermal saver: Dims screen to 5% brightness and draws minimal OLED black UI during active stream to prevent overheating.
+  - Manual focus, zoom steppers (1x, 2x, 3x, 5x), torch/flashlight toggle.
+  - OLED Thermal Saver dimming layer.
 
----
-
-### 2.2 Desktop Receiver (`receiver/`)
-- **Engine**: Python 3.10+ async core (`asyncio`) leveraging `aiortc` for real-time peer connection and media demuxing.
-- **UI Framework**: PyQt6 desktop application with custom dark theme, hardware-accelerated video rendering, and live stream telemetry (FPS, bitrate, packet loss, phone battery).
+### 3.2 Desktop Receiver (`receiver/`)
+- **Async Streaming Core**:
+  - `TurboStreamServer`: Listens on TCP port 8991, reading binary-framed payloads and decoding via OpenCV SIMD C++ routines in <2 ms.
+  - `WebRTCPeerManager`: Manages WebRTC session with pinned 25–35 Mbps floor to prevent GCC quality degradation.
+  - `ADBBridge`: Automatically maintains dual-channel port reversal:
+    - Port 8990: Signaling, Gatekeeper Approval, JSON-RPC Hardware Controls
+    - Port 8991: Direct Turbo Frame Pipe
+- **Desktop UI (`PyQt6`)**:
+  - Master Studio Dashboard with dark glassmorphism theme.
+  - Live Connection Protocol Badge (`⚡ USB TURBO` vs `📶 WEBRTC STUDIO`).
+  - Native 1088x1088 Square HD preset option in Stream Output Profile.
+  - Real-time digital magnification (1.0x - 5.0x) and preview canvas.
 - **Virtual Camera Engine**:
   - `pyvirtualcam` backend supporting OBS Virtual Camera DirectShow filter on Windows and `v4l2loopback` on Linux.
-  - Automatically provisions virtual camera frame buffers matching the phone stream resolution (e.g., 3840x2160, 2560x1440, or 1920x1080).
-- **Audio Engine**: Passthrough to virtual audio loopback devices (e.g. VB-Audio Cable or DirectShow audio loopback).
-- **Approval Gatekeeper**:
-  - When an incoming connection request is signaled from the phone, the laptop UI raises an interactive approval modal displaying:
-    - Phone Model (e.g., "Google Pixel 8 Pro")
-    - IP Address / USB connection indicator
-    - Requested stream profile
-  - User must click **Accept** before SDP answer is generated and media transmission starts.
+  - Accelerated OpenCV resizing and non-blocking frame ingestion pipeline.
 
 ---
 
-### 2.3 Shared Control Protocol (`shared/protocol/`)
-- **Transport**: WebRTC DataChannel (reliable, ordered mode).
-- **Format**: JSON-RPC 2.0 messages for low-latency bidirectional command and telemetry exchange.
-  - Laptop -> Phone: `camera.setTorch`, `camera.setLens`, `camera.setZoom`, `camera.setExposure`, `camera.setFocus`.
-  - Phone -> Laptop: `telemetry.battery`, `telemetry.thermalState`, `telemetry.sensorCaps`.
+## 4. Binary Wire Framing Protocol (Turbo Pipe)
 
----
+Each frame transmitted over TCP port 8991 follows a compact 22-byte big-endian binary frame header:
 
-## 3. Connectivity & Pairing Flow
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   Magic: 'TELE' (0x54454C45)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Payload Length (Bytes)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Width (uint16)        |        Height (uint16)        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Format (u8)  |   Flags (u8)  |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
+|                    Timestamp (uint64, Microseconds)           |
+|                               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                  Binary Frame Payload (JPEG / RGB)            |
+|                              ...                              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
-1. **Discovery Phase**:
-   - Laptop starts local signaling server on a randomized/configured port (default: 8990) and advertises service via mDNS (`_telelens._tcp.local.`).
-   - Laptop displays pairing QR code on the desktop dashboard.
-   - If USB cable is plugged in, `start_adb_tunnel.ps1` or the built-in ADB manager binds `adb reverse tcp:8990 tcp:8990`.
-2. **Handshake & Gatekeeper**:
-   - Phone establishes WebSocket connection to the laptop signaling server.
-   - Phone transmits `DeviceHello` (device name, OS, camera capabilities).
-   - Laptop displays: **"Device 'Google Pixel 8 Pro' requests to stream. Accept / Reject?"**.
-   - Upon user approval, WebRTC SDP Offer/Answer and ICE candidates are exchanged.
-3. **Active Streaming**:
-   - WebRTC media tracks (video & audio) begin transmission.
-   - Laptop demuxes video frames and writes to `pyvirtualcam`.
-   - DataChannel exchanges real-time telemetry and camera controls.
+Format IDs: `1` = JPEG, `2` = Raw RGB24, `3` = H.264 NALU stream.

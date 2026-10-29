@@ -4,16 +4,21 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/webrtc_service.dart';
+import '../services/turbo_stream_service.dart';
 import '../models/device_payload.dart';
 
 class CameraStreamView extends StatefulWidget {
   final WebRTCService webrtcService;
   final String serverName;
+  final bool isUsb;
+  final String host;
 
   const CameraStreamView({
     super.key,
     required this.webrtcService,
     required this.serverName,
+    this.isUsb = false,
+    this.host = "127.0.0.1",
   });
 
   @override
@@ -25,12 +30,16 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   Timer? _telemetryTimer;
 
+  // Direct USB Frame Pipe Engine
+  TurboStreamService? _turboService;
+  bool _turboActive = false;
+
   // Stream & Hardware States
   bool _thermalSaverActive = false;
   String _activeLens = "Rear Main";
   bool _torchActive = false;
   double _currentZoom = 1.0;
-  String _activeQuality = "1080p @ 30FPS";
+  String _activeQuality = "1088x1088 Square";
   int _batteryLevel = 100;
   bool _rendererInitialized = false;
 
@@ -38,6 +47,16 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   void initState() {
     super.initState();
     WakelockPlus.enable();
+
+    if (widget.isUsb) {
+      _turboService = TurboStreamService(
+        webrtcService: widget.webrtcService,
+        onConnectionChanged: (active) {
+          if (mounted) setState(() => _turboActive = active);
+        },
+      );
+    }
+
     _hookWebRTC();
     _initRenderer();
     _startTelemetryLoop();
@@ -50,6 +69,10 @@ class _CameraStreamViewState extends State<CameraStreamView> {
         setState(() {
           _localRenderer.srcObject = stream;
         });
+      }
+      // If USB mode is active, engage direct zero-throttle frame pipe
+      if (widget.isUsb && _turboService != null && !_turboService!.isStreaming) {
+        _turboService!.start(host: widget.host, fps: widget.webrtcService.currentFps);
       }
     };
     widget.webrtcService.onConnectionStateChanged = (connected) {
@@ -69,7 +92,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
         setState(() {
           _rendererInitialized = true;
           _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
-          _activeQuality = "${widget.webrtcService.currentHeight}p @ ${widget.webrtcService.currentFps}FPS";
+          final w = widget.webrtcService.currentWidth;
+          final h = widget.webrtcService.currentHeight;
+          _activeQuality = (w == h) ? "${w}x${h} Square" : "${h}p @ ${widget.webrtcService.currentFps}FPS";
         });
       }
     } catch (e) {
@@ -125,13 +150,13 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       final distance = (params['distance'] is num) ? (params['distance'] as num).toDouble() : 0.5;
       await widget.webrtcService.setFocus(distance, auto);
     } else if (method == "camera.setQuality") {
-      final width = params['width'] as int? ?? 1920;
-      final height = params['height'] as int? ?? 1080;
+      final width = params['width'] as int? ?? 1088;
+      final height = params['height'] as int? ?? 1088;
       final fps = params['fps'] as int? ?? 30;
       final ok = await widget.webrtcService.setQuality(width, height, fps);
       if (ok && mounted) {
         setState(() {
-          _activeQuality = "${height}p @ ${fps}FPS";
+          _activeQuality = (width == height) ? "${width}x${height} Square" : "${height}p @ ${fps}FPS";
         });
       }
     } else if (method == "camera.setThermalSaver") {
@@ -176,6 +201,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   void _handleDisconnectCleanup() {
     if (mounted) {
+      _turboService?.stop();
       widget.webrtcService.dispose();
       Navigator.of(context).pop();
     }
@@ -183,6 +209,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   @override
   void dispose() {
+    _turboService?.stop();
     _telemetryTimer?.cancel();
     _localRenderer.srcObject = null;
     _localRenderer.dispose();
@@ -259,7 +286,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
               ),
             ),
 
-          // 3. Top HUD: Connection Info, Quality Pill, Battery, Disconnect
+          // 3. Top HUD: Connection Info, Quality Pill, Protocol Badge, Battery, Disconnect
           Positioned(
             top: 48,
             left: 16,
@@ -281,14 +308,14 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                       Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF22C55E),
+                        decoration: BoxDecoration(
+                          color: _turboActive ? const Color(0xFF10B981) : const Color(0xFF22C55E),
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        widget.serverName,
+                        _turboActive ? "USB Turbo Pipe" : widget.serverName,
                         style: const TextStyle(
                           color: Color(0xFFF4F4F5),
                           fontSize: 12,
@@ -306,14 +333,18 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF18181B).withAlpha(220),
+                        color: _turboActive
+                            ? const Color(0xFF064E3B).withAlpha(220)
+                            : const Color(0xFF18181B).withAlpha(220),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF27272A)),
+                        border: Border.all(
+                          color: _turboActive ? const Color(0xFF059669) : const Color(0xFF27272A),
+                        ),
                       ),
                       child: Text(
-                        _activeQuality,
-                        style: const TextStyle(
-                          color: Color(0xFFE4E4E7),
+                        _turboActive ? "⚡ $_activeQuality" : _activeQuality,
+                        style: TextStyle(
+                          color: _turboActive ? const Color(0xFF6EE7B7) : const Color(0xFFE4E4E7),
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                         ),

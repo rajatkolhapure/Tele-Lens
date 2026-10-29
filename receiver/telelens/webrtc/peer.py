@@ -1,6 +1,7 @@
 """
 TeleLens WebRTC Peer Connection Manager.
 Manages media track demuxing, video frame routing, audio loopback, and DataChannel control commands.
+Optimized with high initial bitrate floors to prevent Google Congestion Control (GCC) ramp-up delays.
 """
 
 import json
@@ -50,7 +51,11 @@ class WebRTCPeerManager:
         return self._is_connected
 
     def _munge_answer_sdp(self, sdp: str) -> str:
-        """Injects high bitrate and bandwidth parameters into SDP answer specifically for video."""
+        """
+        Injects aggressive bandwidth and bitrate parameters into SDP answer.
+        Forces the encoder to initialize immediately at full studio bitrate (35 Mbps)
+        with a 25 Mbps floor, eliminating WebRTC's slow probing curve.
+        """
         lines = sdp.split("\r\n")
         output = []
         in_video_section = False
@@ -58,14 +63,14 @@ class WebRTCPeerManager:
             if line.startswith("m=video"):
                 in_video_section = True
                 output.append(line)
-                output.append("b=AS:45000")
-                output.append("b=TIAS:45000000")
+                output.append("b=AS:50000")
+                output.append("b=TIAS:50000000")
                 continue
             elif line.startswith("m=audio") or line.startswith("m=application"):
                 in_video_section = False
 
             if in_video_section and line.startswith("a=fmtp:"):
-                output.append(f"{line};x-google-min-bitrate=6000;x-google-start-bitrate=20000;x-google-max-bitrate=50000")
+                output.append(f"{line};x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000")
             else:
                 output.append(line)
 
