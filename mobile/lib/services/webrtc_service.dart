@@ -13,13 +13,18 @@ class WebRTCService {
   RTCDataChannel? _dataChannel;
   WebSocketChannel? _wsChannel;
 
-  final ControlCallback? onRemoteControl;
+  ControlCallback? onRemoteControl;
   final ValueChanged<bool>? onConnectionStateChanged;
   final ValueChanged<MediaStream>? onStreamReady;
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;
   MediaStream? get localStream => _localStream;
+
+  MediaStreamTrack? get videoTrack {
+    final tracks = _localStream?.getVideoTracks();
+    return (tracks != null && tracks.isNotEmpty) ? tracks.first : null;
+  }
 
   WebRTCService({
     this.onRemoteControl,
@@ -126,6 +131,73 @@ class WebRTCService {
       }
     });
     _wsChannel?.sink.add(offerMsg);
+  }
+
+  Future<bool> setTorch(bool enabled) async {
+    final track = videoTrack;
+    if (track == null) return false;
+    try {
+      final hasTorch = await track.hasTorch();
+      if (hasTorch) {
+        await track.setTorch(enabled);
+        return true;
+      }
+    } catch (e) {
+      debugPrint("setTorch error: $e");
+    }
+    return false;
+  }
+
+  Future<bool> switchCamera() async {
+    final track = videoTrack;
+    if (track == null) return false;
+    try {
+      await Helper.switchCamera(track);
+      return true;
+    } catch (e) {
+      debugPrint("switchCamera error: $e");
+    }
+    return false;
+  }
+
+  Future<bool> setZoom(double zoom) async {
+    final track = videoTrack;
+    if (track == null) return false;
+    try {
+      await track.applyConstraints({
+        'advanced': [{'zoom': zoom}]
+      });
+      return true;
+    } catch (e) {
+      debugPrint("setZoom error: $e");
+    }
+    return false;
+  }
+
+  Future<bool> setQuality(int width, int height, int fps) async {
+    final track = videoTrack;
+    if (track == null) return false;
+    try {
+      await track.applyConstraints({
+        'width': {'ideal': width},
+        'height': {'ideal': height},
+        'frameRate': {'ideal': fps},
+      });
+      return true;
+    } catch (e) {
+      debugPrint("setQuality error: $e");
+    }
+    return false;
+  }
+
+  void sendDisconnect() {
+    if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+      try {
+        _dataChannel!.send(RTCDataChannelMessage(
+          jsonEncode({'method': 'session.disconnect', 'params': {}}),
+        ));
+      } catch (_) {}
+    }
   }
 
   void sendTelemetry(TelemetryData telemetry) {

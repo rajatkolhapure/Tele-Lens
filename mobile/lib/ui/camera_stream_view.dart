@@ -24,17 +24,32 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   final Battery _battery = Battery();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   Timer? _telemetryTimer;
+
+  // Stream & Hardware States
   bool _thermalSaverActive = false;
   String _activeLens = "Rear Main";
   bool _torchActive = false;
+  double _currentZoom = 1.0;
+  String _activeQuality = "1080p @ 30 FPS";
+  int _batteryLevel = 100;
   bool _rendererInitialized = false;
 
   @override
   void initState() {
     super.initState();
     WakelockPlus.enable();
+    _hookWebRTC();
     _initRenderer();
     _startTelemetryLoop();
+  }
+
+  void _hookWebRTC() {
+    widget.webrtcService.onRemoteControl = _handleRemoteCommand;
+    widget.webrtcService.onConnectionStateChanged = (connected) {
+      if (!connected && mounted) {
+        _handleDisconnectCleanup();
+      }
+    };
   }
 
   Future<void> _initRenderer() async {
@@ -58,6 +73,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       try {
         final level = await _battery.batteryLevel;
         final state = await _battery.batteryState;
+        if (mounted) {
+          setState(() => _batteryLevel = level);
+        }
         final data = TelemetryData(
           batteryLevel: level,
           isCharging: state == BatteryState.charging,
@@ -70,16 +88,81 @@ class _CameraStreamViewState extends State<CameraStreamView> {
     });
   }
 
-  void handleRemoteCommand(String method, Map<String, dynamic> params) {
-    setState(() {
-      if (method == "camera.setTorch") {
-        _torchActive = params['enabled'] ?? false;
-      } else if (method == "camera.setThermalSaver") {
-        _thermalSaverActive = params['enabled'] ?? false;
-      } else if (method == "camera.setLens") {
-        _activeLens = params['lens'] ?? _activeLens;
+  // Handle incoming remote commands from Windows Studio Dashboard
+  void _handleRemoteCommand(String method, Map<String, dynamic> params) async {
+    debugPrint("Mobile received command: $method $params");
+    if (method == "camera.setTorch") {
+      final enabled = params['enabled'] as bool? ?? false;
+      final ok = await widget.webrtcService.setTorch(enabled);
+      if (ok && mounted) {
+        setState(() => _torchActive = enabled);
       }
-    });
+    } else if (method == "camera.setLens") {
+      final ok = await widget.webrtcService.switchCamera();
+      if (ok && mounted) {
+        setState(() {
+          _activeLens = (_activeLens == "Rear Main") ? "Front Selfie" : "Rear Main";
+        });
+      }
+    } else if (method == "camera.setZoom") {
+      final zoom = (params['zoom'] is num) ? (params['zoom'] as num).toDouble() : 1.0;
+      final ok = await widget.webrtcService.setZoom(zoom);
+      if (ok && mounted) {
+        setState(() => _currentZoom = zoom);
+      }
+    } else if (method == "camera.setQuality") {
+      final width = params['width'] as int? ?? 1920;
+      final height = params['height'] as int? ?? 1080;
+      final fps = params['fps'] as int? ?? 30;
+      final ok = await widget.webrtcService.setQuality(width, height, fps);
+      if (ok && mounted) {
+        setState(() {
+          _activeQuality = "${height}p @ ${fps}FPS";
+        });
+      }
+    } else if (method == "camera.setThermalSaver") {
+      final enabled = params['enabled'] as bool? ?? false;
+      if (mounted) setState(() => _thermalSaverActive = enabled);
+    } else if (method == "session.disconnect") {
+      _handleDisconnectCleanup();
+    }
+  }
+
+  // Local user interactions from phone on-screen toolbar
+  Future<void> _toggleTorch() async {
+    final target = !_torchActive;
+    final ok = await widget.webrtcService.setTorch(target);
+    if (ok && mounted) {
+      setState(() => _torchActive = target);
+    }
+  }
+
+  Future<void> _switchLens() async {
+    final ok = await widget.webrtcService.switchCamera();
+    if (ok && mounted) {
+      setState(() {
+        _activeLens = (_activeLens == "Rear Main") ? "Front Selfie" : "Rear Main";
+      });
+    }
+  }
+
+  Future<void> _applyZoom(double factor) async {
+    final ok = await widget.webrtcService.setZoom(factor);
+    if (ok && mounted) {
+      setState(() => _currentZoom = factor);
+    }
+  }
+
+  void _userDisconnect() {
+    widget.webrtcService.sendDisconnect();
+    _handleDisconnectCleanup();
+  }
+
+  void _handleDisconnectCleanup() {
+    if (mounted) {
+      widget.webrtcService.dispose();
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -93,7 +176,6 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   @override
   Widget build(BuildContext context) {
-    // If localStream became available after renderer init
     if (_rendererInitialized &&
         _localRenderer.srcObject == null &&
         widget.webrtcService.localStream != null) {
@@ -104,12 +186,12 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       backgroundColor: const Color(0xFF09090B),
       body: Stack(
         children: [
-          // Live Camera Viewfinder Feed
+          // 1. Live Camera Viewfinder Feed
           Positioned.fill(
             child: (_rendererInitialized && _localRenderer.srcObject != null)
                 ? RTCVideoView(
                     _localRenderer,
-                    mirror: false,
+                    mirror: _activeLens.contains("Front"),
                     objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
                   )
                 : Container(
@@ -137,7 +219,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                   ),
           ),
 
-          // Thermal Saver Dimming Layer
+          // 2. Thermal Saver Dimming Layer
           if (_thermalSaverActive)
             GestureDetector(
               onTap: () => setState(() => _thermalSaverActive = false),
@@ -153,22 +235,24 @@ class _CameraStreamViewState extends State<CameraStreamView> {
               ),
             ),
 
-          // On-screen Minimalist Badges
+          // 3. Top HUD: Connection Info, Quality Pill, Battery, Disconnect
           Positioned(
             top: 48,
-            left: 20,
-            right: 20,
+            left: 16,
+            right: 16,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Laptop host & status
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: const Color(0xFF18181B).withValues(alpha: 0.85),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: const Color(0xFF27272A)),
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
                         width: 8,
@@ -180,7 +264,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        "Streaming to ${widget.serverName}",
+                        widget.serverName,
                         style: const TextStyle(
                           color: Color(0xFFF4F4F5),
                           fontSize: 12,
@@ -190,32 +274,147 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF18181B).withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF27272A)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "LIVE",
-                        style: TextStyle(
-                          color: Color(0xFFEF4444),
+
+                // Quality Badge & Battery
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF27272A)),
+                      ),
+                      child: Text(
+                        _activeQuality,
+                        style: const TextStyle(
+                          color: Color(0xFFE4E4E7),
                           fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      SizedBox(width: 4),
-                      Text(
-                        "HD",
-                        style: TextStyle(
-                          color: Color(0xFFA1A1AA),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF27272A)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.battery_charging_full_rounded, color: Color(0xFF22C55E), size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            "$_batteryLevel%",
+                            style: const TextStyle(
+                              color: Color(0xFFF4F4F5),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // Quick Disconnect
+                    GestureDetector(
+                      onTap: _userDisconnect,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.power_settings_new, color: Color(0xFFEF4444), size: 14),
+                            SizedBox(width: 4),
+                            Text(
+                              "Stop",
+                              style: TextStyle(
+                                color: Color(0xFFEF4444),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // 4. Floating On-Screen Controls Toolbar (Bottom Center)
+          Positioned(
+            bottom: 32,
+            left: 16,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Floating Toolbar Card
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF18181B).withValues(alpha: 0.90),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF27272A)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Torch Toggle
+                      IconButton(
+                        onPressed: _toggleTorch,
+                        tooltip: "Torch",
+                        icon: Icon(
+                          _torchActive ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                          color: _torchActive ? const Color(0xFFFBBF24) : const Color(0xFFA1A1AA),
+                          size: 22,
+                        ),
+                      ),
+
+                      // Lens Switcher (Front/Rear)
+                      IconButton(
+                        onPressed: _switchLens,
+                        tooltip: "Switch Camera",
+                        icon: const Icon(
+                          Icons.flip_camera_ios_rounded,
+                          color: Color(0xFFE4E4E7),
+                          size: 22,
+                        ),
+                      ),
+
+                      // Zoom Steppers (1x, 2x, 3x, 5x)
+                      _buildZoomChip(1.0, "1x"),
+                      _buildZoomChip(2.0, "2x"),
+                      _buildZoomChip(3.0, "3x"),
+                      _buildZoomChip(5.0, "5x"),
+
+                      // Thermal Saver
+                      IconButton(
+                        onPressed: () => setState(() => _thermalSaverActive = !_thermalSaverActive),
+                        tooltip: "Dim Screen (Thermal Saver)",
+                        icon: Icon(
+                          _thermalSaverActive ? Icons.brightness_high_rounded : Icons.brightness_2_rounded,
+                          color: const Color(0xFFA1A1AA),
+                          size: 20,
                         ),
                       ),
                     ],
@@ -224,54 +423,29 @@ class _CameraStreamViewState extends State<CameraStreamView> {
               ],
             ),
           ),
-
-          // Bottom Bar: Lens info & Disconnect Button
-          Positioned(
-            bottom: 30,
-            left: 20,
-            right: 20,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF18181B).withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF27272A)),
-                  ),
-                  child: Text(
-                    "$_activeLens | ${_torchActive ? 'Torch ON' : 'Torch OFF'}",
-                    style: const TextStyle(
-                      color: Color(0xFFA1A1AA),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF18181B),
-                    foregroundColor: const Color(0xFFEF4444),
-                    side: const BorderSide(color: Color(0xFF27272A)),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  ),
-                  onPressed: () {
-                    widget.webrtcService.dispose();
-                    Navigator.of(context).pop();
-                  },
-                  icon: const Icon(Icons.close, size: 16),
-                  label: const Text(
-                    "Disconnect",
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildZoomChip(double factor, String label) {
+    final bool isSelected = (_currentZoom - factor).abs() < 0.2;
+    return GestureDetector(
+      onTap: () => _applyZoom(factor),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFE4E4E7) : const Color(0xFF27272A),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

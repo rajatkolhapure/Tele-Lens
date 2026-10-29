@@ -67,3 +67,19 @@ class CameraControls:
             "method": "camera.setThermalSaver",
             "params": {"enabled": enabled}
         })
+
+    @staticmethod
+    def set_quality(width: int, height: int, fps: int) -> str:
+        """Sets requested camera stream resolution and frame rate."""
+        return json.dumps({
+            "method": "camera.setQuality",
+            "params": {"width": int(width), "height": int(height), "fps": int(fps)}
+        })
+
+    @staticmethod
+    def disconnect() -> str:
+        """Sends session termination command."""
+        return json.dumps({
+            "method": "session.disconnect",
+            "params": {}
+        })

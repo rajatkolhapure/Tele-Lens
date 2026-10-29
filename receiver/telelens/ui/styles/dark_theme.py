@@ -52,6 +52,32 @@ QPushButton:pressed {
     color: #FFFFFF;
 }
 
+QPushButton:checked {
+    background-color: #27272A;
+    border-color: #A1A1AA;
+    color: #FAFAFA;
+}
+
+QPushButton#StepperButton {
+    padding: 5px 10px;
+    font-size: 11px;
+    background-color: #18181B;
+    border: 1px solid #27272A;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+QPushButton#StepperButton:hover {
+    background-color: #27272A;
+    border-color: #52525B;
+}
+
+QPushButton#StepperButton:checked {
+    background-color: #E4E4E7;
+    color: #09090B;
+    border-color: #E4E4E7;
+}
+
 QPushButton#PrimaryButton {
     background-color: #E4E4E7;
     color: #09090B;

@@ -43,6 +43,17 @@ class TestCameraControls(unittest.TestCase):
         self.assertEqual(cmd["method"], "camera.setThermalSaver")
         self.assertTrue(cmd["params"]["enabled"])
 
+    def test_quality_control(self):
+        cmd = json.loads(CameraControls.set_quality(3840, 2160, 30))
+        self.assertEqual(cmd["method"], "camera.setQuality")
+        self.assertEqual(cmd["params"]["width"], 3840)
+        self.assertEqual(cmd["params"]["height"], 2160)
+        self.assertEqual(cmd["params"]["fps"], 30)
+
+    def test_disconnect_control(self):
+        cmd = json.loads(CameraControls.disconnect())
+        self.assertEqual(cmd["method"], "session.disconnect")
+
 
 class TestSignalingGatekeeper(unittest.TestCase):
     def test_gatekeeper_approval(self):

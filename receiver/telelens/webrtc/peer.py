@@ -31,10 +31,12 @@ class WebRTCPeerManager:
     def __init__(
         self,
         on_frame: Optional[FrameCallback] = None,
-        on_telemetry: Optional[TelemetryCallback] = None
+        on_telemetry: Optional[TelemetryCallback] = None,
+        on_remote_disconnect: Optional[Callable[[], None]] = None
     ):
         self.on_frame = on_frame
         self.on_telemetry = on_telemetry
+        self.on_remote_disconnect = on_remote_disconnect
         self.pc: Optional["RTCPeerConnection"] = None
         self.data_channel = None
         self._is_connected = False
@@ -61,8 +63,13 @@ class WebRTCPeerManager:
             def on_message(message):
                 try:
                     data = json.loads(message)
-                    if self.on_telemetry:
-                        self.on_telemetry(data)
+                    if isinstance(data, dict):
+                        if data.get("method") == "session.disconnect":
+                            logger.info("Remote phone initiated session disconnect.")
+                            if self.on_remote_disconnect:
+                                self.on_remote_disconnect()
+                        elif self.on_telemetry:
+                            self.on_telemetry(data)
                 except Exception as e:
                     logger.warning("Error processing DataChannel message: %s", e)
 
@@ -122,6 +129,13 @@ class WebRTCPeerManager:
             return True
         logger.warning("Cannot send command: DataChannel is not open.")
         return False
+
+    def disconnect_peer(self) -> bool:
+        """Notifies remote phone of intentional disconnect."""
+        try:
+            return self.send_control(json.dumps({"method": "session.disconnect", "params": {}}))
+        except Exception:
+            return False
 
     async def close(self) -> None:
         """Closes the WebRTC peer connection and releases resources."""

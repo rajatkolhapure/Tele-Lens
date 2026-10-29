@@ -81,7 +81,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.adb_bridge = ADBBridge(port=self.config.server.signaling_port)
         self.peer_manager = WebRTCPeerManager(
             on_frame=self._on_video_frame,
-            on_telemetry=self._on_telemetry
+            on_telemetry=self._on_telemetry,
+            on_remote_disconnect=self._on_client_disconnect
         )
 
         self.signaling_server: Optional[SignalingServer] = None
@@ -93,19 +94,19 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._start_services()
 
     def _init_ui(self):
-        self.setWindowTitle("TeleLens Studio — 4K Phone-to-Laptop Webcam")
-        self.resize(1180, 720)
+        self.setWindowTitle("TeleLens Studio — Pro Phone-to-PC Webcam")
+        self.resize(1220, 760)
         self.setStyleSheet(DARK_STYLESHEET)
 
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QHBoxLayout(central)
-        root_layout.setContentsMargins(16, 16, 16, 16)
-        root_layout.setSpacing(16)
+        root_layout.setContentsMargins(18, 18, 18, 18)
+        root_layout.setSpacing(18)
 
         # Left / Center Area: Video Canvas & Top Bar
         left_area = QVBoxLayout()
-        left_area.setSpacing(12)
+        left_area.setSpacing(14)
 
         # Top Bar
         top_bar = QHBoxLayout()
@@ -118,6 +119,13 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         top_bar.addWidget(title_lbl)
         top_bar.addWidget(self.status_badge)
         top_bar.addStretch()
+
+        # Disconnect Button
+        self.disconnect_btn = QPushButton("⏹️ Disconnect Device")
+        self.disconnect_btn.setObjectName("DangerButton")
+        self.disconnect_btn.setEnabled(False)
+        self.disconnect_btn.clicked.connect(self._handle_user_disconnect)
+        top_bar.addWidget(self.disconnect_btn)
 
         self.qr_btn = QPushButton("📱 Pair Device (QR)")
         self.qr_btn.clicked.connect(self._show_qr_dialog)
@@ -149,72 +157,111 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
         # Right Area: Remote Hardware Controls Sidebar
         sidebar = QVBoxLayout()
-        sidebar.setSpacing(16)
+        sidebar.setSpacing(14)
         sidebar.setContentsMargins(0, 0, 0, 0)
 
-        # Group 1: Camera Sensor & Lenses
+        # Group 1: Stream Output Quality & FPS
+        quality_group = QGroupBox("Stream Output Profile")
+        quality_layout = QVBoxLayout(quality_group)
+        quality_layout.setSpacing(8)
+
+        quality_lbl = QLabel("Resolution & Target Framerate:")
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItem("1080p FHD (1920x1080) @ 30 FPS", (1920, 1080, 30))
+        self.quality_combo.addItem("1080p FHD (1920x1080) @ 60 FPS", (1920, 1080, 60))
+        self.quality_combo.addItem("4K UHD (3840x2160) @ 30 FPS", (3840, 2160, 30))
+        self.quality_combo.addItem("1440p QHD (2560x1440) @ 60 FPS", (2560, 1440, 60))
+        self.quality_combo.addItem("720p HD (1280x720) @ 60 FPS", (1280, 720, 60))
+        self.quality_combo.currentIndexChanged.connect(self._on_quality_changed)
+        quality_layout.addWidget(quality_lbl)
+        quality_layout.addWidget(self.quality_combo)
+        sidebar.addWidget(quality_group)
+
+        # Group 2: Camera Sensor & Lens
         cam_group = QGroupBox("Camera Sensor & Lens")
         cam_layout = QVBoxLayout(cam_group)
         cam_layout.setSpacing(10)
 
-        lens_lbl = QLabel("Active Lens:")
+        lens_lbl = QLabel("Active Camera:")
         self.lens_combo = QComboBox()
-        self.lens_combo.addItem("Rear Primary (Wide 1x)", CameraLens.REAR_MAIN)
-        self.lens_combo.addItem("Rear Ultra-Wide (0.6x)", CameraLens.REAR_ULTRAWIDE)
-        self.lens_combo.addItem("Rear Telephoto (3x/5x)", CameraLens.REAR_TELEPHOTO)
-        self.lens_combo.addItem("Front Facing (Selfie)", CameraLens.FRONT)
+        self.lens_combo.addItem("Rear Primary Camera (Main)", "rear_main")
+        self.lens_combo.addItem("Front Selfie Camera", "front")
         self.lens_combo.currentIndexChanged.connect(self._on_lens_changed)
         cam_layout.addWidget(lens_lbl)
         cam_layout.addWidget(self.lens_combo)
 
-        self.torch_check = QCheckBox("Flashlight / Torch")
-        self.torch_check.toggled.connect(self._on_torch_toggled)
-        cam_layout.addWidget(self.torch_check)
+        # Torch Button
+        self.torch_btn = QPushButton("🔦 Flashlight: OFF")
+        self.torch_btn.setCheckable(True)
+        self.torch_btn.toggled.connect(self._on_torch_toggled)
+        cam_layout.addWidget(self.torch_btn)
 
         sidebar.addWidget(cam_group)
 
-        # Group 2: Manual Tuning (Zoom, Exposure, Focus)
-        tuning_group = QGroupBox("Manual Tuning")
-        tune_layout = QVBoxLayout(tuning_group)
-        tune_layout.setSpacing(10)
+        # Group 3: Digital Zoom with Steppers
+        zoom_group = QGroupBox("Digital Zoom")
+        zoom_layout = QVBoxLayout(zoom_group)
+        zoom_layout.setSpacing(10)
+
+        zoom_header = QHBoxLayout()
+        zoom_lbl = QLabel("Magnification:")
+        self.zoom_val_lbl = QLabel("1.0x")
+        self.zoom_val_lbl.setStyleSheet("font-weight: bold; color: #FAFAFA;")
+        zoom_header.addWidget(zoom_lbl)
+        zoom_header.addStretch()
+        zoom_header.addWidget(self.zoom_val_lbl)
+        zoom_layout.addLayout(zoom_header)
+
+        # Stepper buttons
+        stepper_layout = QHBoxLayout()
+        stepper_layout.setSpacing(6)
+        for mult in [1.0, 1.5, 2.0, 3.0, 5.0]:
+            btn = QPushButton(f"{mult}x")
+            btn.setObjectName("StepperButton")
+            btn.clicked.connect(lambda _, m=mult: self._set_zoom_val(m))
+            stepper_layout.addWidget(btn)
+        zoom_layout.addLayout(stepper_layout)
 
         # Zoom Slider
-        zoom_lbl = QLabel("Zoom Factor:")
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
         self.zoom_slider.setRange(10, 50)  # 1.0x to 5.0x
         self.zoom_slider.setValue(10)
         self.zoom_slider.valueChanged.connect(self._on_zoom_changed)
-        tune_layout.addWidget(zoom_lbl)
-        tune_layout.addWidget(self.zoom_slider)
+        zoom_layout.addWidget(self.zoom_slider)
 
-        # Focus Slider & Auto-focus
-        focus_lbl = QLabel("Manual Focus:")
-        self.af_check = QCheckBox("Auto Focus (Continuous)")
+        sidebar.addWidget(zoom_group)
+
+        # Group 4: Focus Tuning
+        focus_group = QGroupBox("Focus Tuning")
+        focus_layout = QVBoxLayout(focus_group)
+        focus_layout.setSpacing(10)
+
+        self.af_check = QCheckBox("Continuous Auto Focus")
         self.af_check.setChecked(True)
         self.af_check.toggled.connect(self._on_af_toggled)
+        focus_layout.addWidget(self.af_check)
+
         self.focus_slider = QSlider(Qt.Orientation.Horizontal)
         self.focus_slider.setRange(0, 100)
         self.focus_slider.setValue(50)
         self.focus_slider.setEnabled(False)
         self.focus_slider.valueChanged.connect(self._on_focus_changed)
-        tune_layout.addWidget(focus_lbl)
-        tune_layout.addWidget(self.af_check)
-        tune_layout.addWidget(self.focus_slider)
+        focus_layout.addWidget(self.focus_slider)
 
-        sidebar.addWidget(tuning_group)
+        sidebar.addWidget(focus_group)
 
-        # Group 3: Thermal & Battery Management
-        power_group = QGroupBox("Thermal & Battery Saver")
+        # Group 5: Telemetry & Saver
+        power_group = QGroupBox("Phone Telemetry & Power")
         power_layout = QVBoxLayout(power_group)
         power_layout.setSpacing(10)
 
-        self.saver_check = QCheckBox("Phone OLED Screen Off / Dim")
+        self.battery_lbl = QLabel("🔋 Phone Battery: --%")
+        power_layout.addWidget(self.battery_lbl)
+
+        self.saver_check = QCheckBox("Phone OLED Screen Dimmer")
         self.saver_check.setChecked(True)
         self.saver_check.toggled.connect(self._on_thermal_saver_toggled)
         power_layout.addWidget(self.saver_check)
-
-        self.battery_lbl = QLabel("Phone Battery: --%")
-        power_layout.addWidget(self.battery_lbl)
 
         sidebar.addWidget(power_group)
         sidebar.addStretch()
@@ -260,7 +307,6 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._async_thread.start()
 
     def _on_video_frame(self, frame_rgb):
-        # Called from WebRTC track reader thread
         self.bridge.frame_received.emit(frame_rgb)
         if self.vcam_engine.is_running:
             self.vcam_engine.send_frame(frame_rgb)
@@ -278,6 +324,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             self.status_badge.setObjectName("StatusBadgeActive")
             self.status_badge.style().unpolish(self.status_badge)
             self.status_badge.style().polish(self.status_badge)
+            self.disconnect_btn.setEnabled(True)
 
     def _handle_approval_dialog(self, device_info, future):
         dialog = ApprovalDialog(device_info, self)
@@ -285,17 +332,32 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._async_loop.call_soon_threadsafe(future.set_result, accepted)
 
     def _handle_telemetry_ui(self, data):
-        if "battery" in data:
-            pct = data["battery"]
-            self.battery_lbl.setText(f"Phone Battery: {pct}%")
+        if "batteryLevel" in data:
+            pct = data["batteryLevel"]
+            self.battery_lbl.setText(f"🔋 Phone Battery: {pct}%")
             self.video_widget.set_battery(pct)
+        elif "battery" in data:
+            pct = data["battery"]
+            self.battery_lbl.setText(f"🔋 Phone Battery: {pct}%")
+            self.video_widget.set_battery(pct)
+
+    def _handle_user_disconnect(self):
+        """User clicked Disconnect button on Windows."""
+        self.peer_manager.disconnect_peer()
+        if self._async_loop and self._async_loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.peer_manager.close(), self._async_loop)
+        self._handle_client_disconnected()
 
     def _handle_client_disconnected(self):
         self.video_widget.set_disconnected()
-        self.status_badge.setText("STANDBY")
+        self.status_badge.setText("READY - WAITING FOR PHONE")
         self.status_badge.setObjectName("StatusBadge")
         self.status_badge.style().unpolish(self.status_badge)
         self.status_badge.style().polish(self.status_badge)
+        self.disconnect_btn.setEnabled(False)
+        self.battery_lbl.setText("🔋 Phone Battery: --%")
+        self.torch_btn.setChecked(False)
+        self.torch_btn.setText("🔦 Flashlight: OFF")
 
     def _toggle_virtual_cam(self):
         if self.vcam_engine.is_running:
@@ -326,6 +388,18 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         dlg.exec()
 
     # Camera Controls
+    def _on_quality_changed(self, index):
+        data = self.quality_combo.currentData()
+        if data:
+            width, height, fps = data
+            cmd = CameraControls.set_quality(width, height, fps)
+            self.peer_manager.send_control(cmd)
+            self.config.stream.width = width
+            self.config.stream.height = height
+            self.config.stream.fps = fps
+            if self.vcam_engine.is_running:
+                self.vcam_engine.resize(width, height, fps)
+
     def _on_lens_changed(self, index):
         lens = self.lens_combo.currentData()
         if lens:
@@ -333,11 +407,16 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             self.peer_manager.send_control(cmd)
 
     def _on_torch_toggled(self, checked):
+        self.torch_btn.setText("🔦 Flashlight: ON" if checked else "🔦 Flashlight: OFF")
         cmd = CameraControls.set_torch(checked)
         self.peer_manager.send_control(cmd)
 
+    def _set_zoom_val(self, multiplier: float):
+        self.zoom_slider.setValue(int(multiplier * 10))
+
     def _on_zoom_changed(self, val):
         factor = val / 10.0
+        self.zoom_val_lbl.setText(f"{factor:.1f}x")
         cmd = CameraControls.set_zoom(factor)
         self.peer_manager.send_control(cmd)
 
@@ -356,6 +435,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.peer_manager.send_control(cmd)
 
     def closeEvent(self, event):
+        self.peer_manager.disconnect_peer()
         self.adb_bridge.stop()
         self.vcam_engine.stop()
         self.mdns_service.stop()
