@@ -14,8 +14,8 @@ class WebRTCService {
   WebSocketChannel? _wsChannel;
 
   ControlCallback? onRemoteControl;
-  final ValueChanged<bool>? onConnectionStateChanged;
-  final ValueChanged<MediaStream>? onStreamReady;
+  ValueChanged<bool>? onConnectionStateChanged;
+  ValueChanged<MediaStream>? onStreamReady;
 
   bool _isConnected = false;
   bool get isConnected => _isConnected;

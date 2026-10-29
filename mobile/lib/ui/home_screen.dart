@@ -378,10 +378,10 @@ class _HomeScreenState extends State<HomeScreen>
         ),
 
         // ── Section: Other Ways to Connect ──────────────────────────────────
-        SliverToBoxAdapter(
+        const SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 10),
-            child: const Text(
+            padding: EdgeInsets.fromLTRB(24, 24, 24, 10),
+            child: Text(
               'OTHER WAYS TO CONNECT',
               style: TextStyle(
                 color: Color(0xFF71717A),
@@ -457,17 +457,17 @@ class _HomeScreenState extends State<HomeScreen>
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFF27272A)),
       ),
-      child: Column(
+      child: const Column(
         children: [
           Icon(Icons.wifi_find,
-              color: const Color(0xFF52525B), size: 32),
-          const SizedBox(height: 12),
-          const Text(
+              color: Color(0xFF52525B), size: 32),
+          SizedBox(height: 12),
+          Text(
             'Scanning local network…',
             style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 14),
           ),
-          const SizedBox(height: 4),
-          const Text(
+          SizedBox(height: 4),
+          Text(
             'Make sure TeleLens is open on your laptop\nand both devices are on the same Wi-Fi.',
             textAlign: TextAlign.center,
             style: TextStyle(
