@@ -120,6 +120,10 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       if (mounted) {
         setState(() => _currentZoom = zoom.clamp(1.0, 5.0));
       }
+    } else if (method == "camera.setFocus") {
+      final auto = params['auto'] as bool? ?? true;
+      final distance = (params['distance'] is num) ? (params['distance'] as num).toDouble() : 0.5;
+      await widget.webrtcService.setFocus(distance, auto);
     } else if (method == "camera.setQuality") {
       final width = params['width'] as int? ?? 1920;
       final height = params['height'] as int? ?? 1080;
@@ -159,6 +163,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   Future<void> _applyZoom(double factor) async {
     final clamped = factor.clamp(1.0, 5.0);
     await widget.webrtcService.setZoom(clamped);
+    widget.webrtcService.sendZoom(clamped);
     if (mounted) {
       setState(() => _currentZoom = clamped);
     }

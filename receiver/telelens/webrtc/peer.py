@@ -22,6 +22,7 @@ except ImportError:
 
 FrameCallback = Callable[[np.ndarray], None]
 TelemetryCallback = Callable[[Dict[str, Any]], None]
+ControlCallback = Callable[[str, Dict[str, Any]], None]
 
 
 class WebRTCPeerManager:
@@ -31,11 +32,13 @@ class WebRTCPeerManager:
         self,
         on_frame: Optional[FrameCallback] = None,
         on_telemetry: Optional[TelemetryCallback] = None,
-        on_remote_disconnect: Optional[Callable[[], None]] = None
+        on_remote_disconnect: Optional[Callable[[], None]] = None,
+        on_remote_control: Optional[ControlCallback] = None
     ):
         self.on_frame = on_frame
         self.on_telemetry = on_telemetry
         self.on_remote_disconnect = on_remote_disconnect
+        self.on_remote_control = on_remote_control
         self.pc: Optional["RTCPeerConnection"] = None
         self.data_channel = None
         self._is_connected = False
@@ -47,16 +50,25 @@ class WebRTCPeerManager:
         return self._is_connected
 
     def _munge_answer_sdp(self, sdp: str) -> str:
-        """Injects high bitrate and bandwidth parameters into SDP answer."""
+        """Injects high bitrate and bandwidth parameters into SDP answer specifically for video."""
         lines = sdp.split("\r\n")
         output = []
+        in_video_section = False
         for line in lines:
-            output.append(line)
             if line.startswith("m=video"):
+                in_video_section = True
+                output.append(line)
                 output.append("b=AS:45000")
                 output.append("b=TIAS:45000000")
-            elif line.startswith("a=fmtp:"):
+                continue
+            elif line.startswith("m=audio") or line.startswith("m=application"):
+                in_video_section = False
+
+            if in_video_section and line.startswith("a=fmtp:"):
                 output.append(f"{line};x-google-min-bitrate=6000;x-google-start-bitrate=20000;x-google-max-bitrate=50000")
+            else:
+                output.append(line)
+
         return "\r\n".join(output)
 
     async def handle_offer(self, sdp_type: str, sdp_string: str) -> str:
@@ -76,10 +88,14 @@ class WebRTCPeerManager:
                 try:
                     data = json.loads(message)
                     if isinstance(data, dict):
-                        if data.get("method") == "session.disconnect":
+                        method = data.get("method")
+                        params = data.get("params", {})
+                        if method == "session.disconnect":
                             logger.info("Remote phone initiated session disconnect.")
                             if self.on_remote_disconnect:
                                 self.on_remote_disconnect()
+                        elif method and self.on_remote_control:
+                            self.on_remote_control(method, params)
                         elif self.on_telemetry:
                             self.on_telemetry(data)
                 except Exception as e:
@@ -115,8 +131,6 @@ class WebRTCPeerManager:
         try:
             while True:
                 frame = await track.recv()
-                # Convert PyAV VideoFrame to an owned, contiguous RGB numpy array copy
-                # Cloned copy is mandatory to prevent dangling buffer memory corruption across threads
                 img_rgb = np.ascontiguousarray(frame.to_ndarray(format="rgb24")).copy()
                 if self.on_frame:
                     self.on_frame(img_rgb)
@@ -138,9 +152,11 @@ class WebRTCPeerManager:
     def send_control(self, command_json: str) -> bool:
         """Sends a JSON-RPC control command over DataChannel to the phone."""
         if self.data_channel and self.data_channel.readyState == "open":
-            self.data_channel.send(command_json)
-            return True
-        logger.warning("Cannot send command: DataChannel is not open.")
+            try:
+                self.data_channel.send(command_json)
+                return True
+            except Exception as e:
+                logger.warning("Error sending over DataChannel: %s", e)
         return False
 
     def disconnect_peer(self) -> bool:

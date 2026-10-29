@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -25,6 +26,7 @@ class WebRTCService {
   int _currentWidth = 1920;
   int _currentHeight = 1080;
   int _currentFps = 30;
+  bool _isPortraitSensor = true;
 
   String get currentFacingMode => _currentFacingMode;
   int get currentWidth => _currentWidth;
@@ -79,6 +81,12 @@ class WebRTCService {
       _isConnected = true;
       onConnectionStateChanged?.call(true);
       await _optimizeSenderEncodings();
+    } else if (type == 'control') {
+      final method = payload['method'] as String?;
+      final params = payload['params'] as Map<String, dynamic>? ?? {};
+      if (method != null) {
+        onRemoteControl?.call(method, params);
+      }
     } else if (type == 'reject') {
       debugPrint("Laptop user rejected incoming stream request.");
       _handleDisconnected();
@@ -86,16 +94,17 @@ class WebRTCService {
   }
 
   int _calculateBitrate(int width, int height, int fps) {
-    if (width >= 3840 || height >= 2160) {
-      return 35000000; // 35 Mbps for 4K
-    } else if (width >= 2560 || height >= 1440) {
-      return 24000000; // 24 Mbps for 1440p
+    final maxDim = max(width, height);
+    if (maxDim >= 3840) {
+      return 35000000; // 35 Mbps for 4K UHD
+    } else if (maxDim >= 2560) {
+      return 24000000; // 24 Mbps for 1440p QHD
     } else if (fps >= 60) {
-      return 18000000; // 18 Mbps for 1080p60
-    } else if (width >= 1920 || height >= 1080) {
-      return 12000000; // 12 Mbps for 1080p30
+      return 18000000; // 18 Mbps for 1080p 60FPS
+    } else if (maxDim >= 1920) {
+      return 14000000; // 14 Mbps for 1080p 30FPS
     }
-    return 6000000; // 6 Mbps for 720p
+    return 8000000; // 8 Mbps for 720p
   }
 
   Future<void> _optimizeSenderEncodings() async {
@@ -108,7 +117,7 @@ class WebRTCService {
           final targetBitrate = _calculateBitrate(_currentWidth, _currentHeight, _currentFps);
           for (var enc in params.encodings ?? []) {
             enc.maxBitrate = targetBitrate;
-            enc.minBitrate = 4000000; // 4 Mbps floor prevents 360p downscaling
+            enc.minBitrate = 4000000; // 4 Mbps floor prevents downscaling to 360p
             enc.maxFramerate = _currentFps;
             enc.networkPriority = 1;
           }
@@ -125,27 +134,42 @@ class WebRTCService {
   String _mungeSdpForStudioQuality(String sdp) {
     final lines = sdp.split("\r\n");
     final output = <String>[];
+    bool inVideoSection = false;
     for (int i = 0; i < lines.length; i++) {
-      output.add(lines[i]);
       if (lines[i].startsWith("m=video")) {
-        // Enforce 45 Mbps bandwidth ceiling directly in SDP
+        inVideoSection = true;
+        output.add(lines[i]);
         output.add("b=AS:45000");
         output.add("b=TIAS:45000000");
-      } else if (lines[i].startsWith("a=fmtp:")) {
-        // Force Google WebRTC engine high start/min/max bitrates
+        continue;
+      } else if (lines[i].startsWith("m=audio") || lines[i].startsWith("m=application")) {
+        inVideoSection = false;
+      }
+
+      if (inVideoSection && lines[i].startsWith("a=fmtp:")) {
         output.add("${lines[i]};x-google-min-bitrate=6000;x-google-start-bitrate=20000;x-google-max-bitrate=50000");
+      } else {
+        output.add(lines[i]);
       }
     }
     return output.join("\r\n");
   }
 
   Map<String, dynamic> _buildMediaConstraints(int width, int height, int fps, String facingMode) {
+    // Determine proper dimension assignment for phone camera sensor
+    final targetMin = min(width, height);
+    final targetMax = max(width, height);
+
+    // If held in portrait mode, swap to (min x max) e.g. 1080x1920 for 1080p
+    final reqWidth = _isPortraitSensor ? targetMin : targetMax;
+    final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+
     return <String, dynamic>{
       'audio': true,
       'video': {
         'mandatory': {
-          'minWidth': '$width',
-          'minHeight': '$height',
+          'minWidth': '$reqWidth',
+          'minHeight': '$reqHeight',
           'minFrameRate': '$fps',
         },
         'facingMode': facingMode,
@@ -171,9 +195,11 @@ class WebRTCService {
       if (data.isBinary) return;
       try {
         final parsed = jsonDecode(data.text) as Map<String, dynamic>;
-        final method = parsed['method'] as String;
+        final method = parsed['method'] as String?;
         final params = parsed['params'] as Map<String, dynamic>? ?? {};
-        onRemoteControl?.call(method, params);
+        if (method != null) {
+          onRemoteControl?.call(method, params);
+        }
       } catch (e) {
         debugPrint("Error parsing remote control message: $e");
       }
@@ -184,12 +210,17 @@ class WebRTCService {
       final constraints = _buildMediaConstraints(_currentWidth, _currentHeight, _currentFps, _currentFacingMode);
       _localStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
-      debugPrint("High resolution getUserMedia failed, trying fallback: $e");
+      debugPrint("Strict getUserMedia constraints failed ($e), falling back to flexible ideal constraints");
+      final targetMin = min(_currentWidth, _currentHeight);
+      final targetMax = max(_currentWidth, _currentHeight);
+      final reqWidth = _isPortraitSensor ? targetMin : targetMax;
+      final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+
       final fallbackConstraints = <String, dynamic>{
         'audio': true,
         'video': {
-          'width': {'ideal': _currentWidth},
-          'height': {'ideal': _currentHeight},
+          'width': {'ideal': reqWidth},
+          'height': {'ideal': reqHeight},
           'frameRate': {'ideal': _currentFps},
           'facingMode': _currentFacingMode,
         }
@@ -219,7 +250,7 @@ class WebRTCService {
   }
 
   /// Dynamically re-acquires camera hardware stream with target lens, resolution, and framerate.
-  /// Seamlessly swaps the track on the active WebRTC sender without dropping the session.
+  /// Safely releases old Camera2 hardware first to eliminate CAMERA_IN_USE conflicts.
   Future<bool> reacquireVideoTrack({
     String? facingMode,
     int? width,
@@ -234,17 +265,36 @@ class WebRTCService {
     try {
       debugPrint("Reacquiring video track: ${newWidth}x$newHeight @ $newFps FPS, facing: $newFacing");
 
+      // 1. IMPORTANT: Safely release previous camera hardware FIRST
+      final oldVideoTracks = _localStream?.getVideoTracks() ?? [];
+      for (final oldTrack in oldVideoTracks) {
+        _localStream?.removeTrack(oldTrack);
+        try {
+          await oldTrack.stop();
+          await oldTrack.dispose();
+        } catch (_) {}
+      }
+
+      // Small yield to let OS Camera HAL release hardware cleanly
+      await Future.delayed(const Duration(milliseconds: 120));
+
+      // 2. Acquire new camera stream with specified parameters
       MediaStream newStream;
       try {
         final constraints = _buildMediaConstraints(newWidth, newHeight, newFps, newFacing);
         newStream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (e) {
-        debugPrint("Strict constraints failed, using ideal constraints: $e");
+        debugPrint("Strict constraints failed, using flexible ideal bounds: $e");
+        final targetMin = min(newWidth, newHeight);
+        final targetMax = max(newWidth, newHeight);
+        final reqWidth = _isPortraitSensor ? targetMin : targetMax;
+        final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+
         final fallback = <String, dynamic>{
           'audio': false,
           'video': {
-            'width': {'ideal': newWidth},
-            'height': {'ideal': newHeight},
+            'width': {'ideal': reqWidth},
+            'height': {'ideal': reqHeight},
             'frameRate': {'ideal': newFps},
             'facingMode': newFacing,
           }
@@ -270,15 +320,8 @@ class WebRTCService {
         }
       }
 
-      // Dispose old video track and update local stream
-      final oldVideoTracks = _localStream?.getVideoTracks() ?? [];
-      for (final oldTrack in oldVideoTracks) {
-        _localStream?.removeTrack(oldTrack);
-        await oldTrack.stop();
-        await oldTrack.dispose();
-      }
-
-      _localStream?.addTrack(newTrack);
+      _localStream ??= await createLocalMediaStream('telelens-stream');
+      _localStream!.addTrack(newTrack);
 
       _currentFacingMode = newFacing;
       _currentWidth = newWidth;
@@ -300,11 +343,8 @@ class WebRTCService {
     final track = videoTrack;
     if (track == null) return false;
     try {
-      final hasTorch = await track.hasTorch();
-      if (hasTorch) {
-        await track.setTorch(enabled);
-        return true;
-      }
+      await track.setTorch(enabled);
+      return true;
     } catch (e) {
       debugPrint("setTorch error: $e");
     }
@@ -313,22 +353,26 @@ class WebRTCService {
 
   /// Switch between front selfie camera and rear primary camera.
   Future<bool> switchCamera({String? targetLens}) async {
-    String newFacing;
-    if (targetLens != null) {
-      if (targetLens.toLowerCase().contains("front") || targetLens.toLowerCase().contains("selfie")) {
-        newFacing = 'user';
-      } else {
-        newFacing = 'environment';
+    final track = videoTrack;
+    if (track != null) {
+      // First attempt fast in-place switch
+      try {
+        await Helper.switchCamera(track);
+        _currentFacingMode = (_currentFacingMode == 'user') ? 'environment' : 'user';
+        onStreamReady?.call(_localStream!);
+        return true;
+      } catch (e) {
+        debugPrint("Helper.switchCamera failed ($e), falling back to track reacquire");
       }
-    } else {
-      newFacing = (_currentFacingMode == 'user') ? 'environment' : 'user';
     }
 
-    if (newFacing == _currentFacingMode && _localStream != null) {
-      return true;
+    String newFacing = (_currentFacingMode == 'user') ? 'environment' : 'user';
+    if (targetLens != null) {
+      newFacing = (targetLens.toLowerCase().contains("front") || targetLens.toLowerCase().contains("selfie"))
+          ? 'user'
+          : 'environment';
     }
 
-    // For front camera, adjust target resolution if exceeding standard front sensor limits
     int targetW = _currentWidth;
     int targetH = _currentHeight;
     if (newFacing == 'user' && targetW > 1920) {
@@ -353,9 +397,28 @@ class WebRTCService {
       });
       return true;
     } catch (e) {
-      debugPrint("setZoom constraint warning (handled in video pipeline): $e");
+      debugPrint("setZoom constraint notice: $e");
     }
     return true;
+  }
+
+  Future<bool> setFocus(double distance, bool auto) async {
+    final track = videoTrack;
+    if (track == null) return false;
+    try {
+      await track.applyConstraints({
+        'advanced': [
+          {
+            'focusMode': auto ? 'continuous' : 'manual',
+            'focusDistance': distance,
+          }
+        ]
+      });
+      return true;
+    } catch (e) {
+      debugPrint("setFocus error: $e");
+    }
+    return false;
   }
 
   Future<bool> setQuality(int width, int height, int fps) async {
@@ -366,14 +429,33 @@ class WebRTCService {
     );
   }
 
-  void sendDisconnect() {
+  void sendZoom(double zoom) {
+    sendControl('camera.onZoomChanged', {'zoom': zoom});
+  }
+
+  void sendControl(String method, Map<String, dynamic> params) {
+    final data = jsonEncode({'method': method, 'params': params});
+
+    // 1. Send over DataChannel
     if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
       try {
-        _dataChannel!.send(RTCDataChannelMessage(
-          jsonEncode({'method': 'session.disconnect', 'params': {}}),
-        ));
+        _dataChannel!.send(RTCDataChannelMessage(data));
       } catch (_) {}
     }
+
+    // 2. Send over WebSocket for dual-channel redundancy
+    if (_wsChannel != null) {
+      try {
+        _wsChannel!.sink.add(jsonEncode({
+          'type': 'control',
+          'payload': {'method': method, 'params': params}
+        }));
+      } catch (_) {}
+    }
+  }
+
+  void sendDisconnect() {
+    sendControl('session.disconnect', {});
   }
 
   void sendTelemetry(TelemetryData telemetry) {

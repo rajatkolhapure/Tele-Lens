@@ -1,6 +1,7 @@
 """
 TeleLens Signaling Server & Approval Gatekeeper.
-WebSocket server managing client handshake, laptop user approval, and WebRTC SDP/ICE exchange.
+WebSocket server managing client handshake, laptop user approval, WebRTC SDP/ICE exchange,
+and dual-channel reliable control command dispatch.
 """
 
 import json
@@ -10,10 +11,11 @@ from typing import Callable, Optional, Dict, Any, Awaitable
 logger = logging.getLogger(__name__)
 
 ApprovalCallback = Callable[[Dict[str, Any]], Awaitable[bool]]
+ControlCallback = Callable[[str, Dict[str, Any]], None]
 
 
 class SignalingServer:
-    """Async WebSocket signaling server with laptop approval gatekeeper."""
+    """Async WebSocket signaling server with laptop approval gatekeeper and control command relay."""
 
     def __init__(
         self,
@@ -27,10 +29,11 @@ class SignalingServer:
         self.approval_callback = approval_callback
         self.require_approval = require_approval
         self._server = None
-        self._active_peer = None
+        self._active_ws = None
         self._on_offer_callback = None
         self._on_candidate_callback = None
         self._on_disconnect_callback = None
+        self._on_control_callback: Optional[ControlCallback] = None
         self._is_running = False
 
     def set_offer_handler(self, callback: Callable[[str, str], Awaitable[str]]) -> None:
@@ -42,6 +45,26 @@ class SignalingServer:
 
     def set_disconnect_handler(self, callback: Callable[[], None]) -> None:
         self._on_disconnect_callback = callback
+
+    def set_control_handler(self, callback: ControlCallback) -> None:
+        self._on_control_callback = callback
+
+    async def send_control(self, method: str, params: Dict[str, Any]) -> bool:
+        """Sends a hardware/stream control command over the active WebSocket connection."""
+        if self._active_ws and not self._active_ws.closed:
+            try:
+                msg = json.dumps({
+                    "type": "control",
+                    "payload": {
+                        "method": method,
+                        "params": params
+                    }
+                })
+                await self._active_ws.send_str(msg)
+                return True
+            except Exception as e:
+                logger.warning("Error sending control command over WebSocket: %s", e)
+        return False
 
     async def handle_message(self, raw_message: str, send_response: Callable[[str], Awaitable[None]]) -> None:
         """Parses and handles a single signaling message."""
@@ -56,14 +79,12 @@ class SignalingServer:
         payload = msg.get("payload", {})
 
         if msg_type == "hello":
-            # Incoming phone connection handshake
             device_name = payload.get("device_name", "Unknown Phone")
             device_os = payload.get("os", "Android/iOS")
             stream_profile = payload.get("stream_profile", "4K 30fps")
 
             logger.info("Incoming connection request from %s (%s, %s)", device_name, device_os, stream_profile)
 
-            # Gatekeeper approval check
             approved = True
             if self.require_approval and self.approval_callback is not None:
                 approved = await self.approval_callback(payload)
@@ -103,6 +124,12 @@ class SignalingServer:
             if self._on_candidate_callback:
                 await self._on_candidate_callback(payload)
 
+        elif msg_type == "control":
+            method = payload.get("method")
+            params = payload.get("params", {})
+            if self._on_control_callback and method:
+                self._on_control_callback(method, params)
+
         elif msg_type == "disconnect":
             logger.info("Client signaled disconnect.")
             if self._on_disconnect_callback:
@@ -121,6 +148,7 @@ class SignalingServer:
         async def websocket_handler(request):
             ws = web.WebSocketResponse()
             await ws.prepare(request)
+            self._active_ws = ws
             self._is_running = True
             logger.info("Phone connected to WebSocket signaling channel.")
 
@@ -135,6 +163,8 @@ class SignalingServer:
                         logger.error("WebSocket error: %s", ws.exception())
             finally:
                 logger.info("Phone disconnected from WebSocket signaling channel.")
+                if self._active_ws is ws:
+                    self._active_ws = None
                 if self._on_disconnect_callback:
                     self._on_disconnect_callback()
 
