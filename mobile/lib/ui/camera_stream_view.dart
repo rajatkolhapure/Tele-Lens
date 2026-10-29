@@ -30,7 +30,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
   String _activeLens = "Rear Main";
   bool _torchActive = false;
   double _currentZoom = 1.0;
-  String _activeQuality = "1080p @ 30 FPS";
+  String _activeQuality = "1080p @ 30FPS";
   int _batteryLevel = 100;
   bool _rendererInitialized = false;
 
@@ -45,6 +45,13 @@ class _CameraStreamViewState extends State<CameraStreamView> {
 
   void _hookWebRTC() {
     widget.webrtcService.onRemoteControl = _handleRemoteCommand;
+    widget.webrtcService.onStreamReady = (stream) {
+      if (mounted) {
+        setState(() {
+          _localRenderer.srcObject = stream;
+        });
+      }
+    };
     widget.webrtcService.onConnectionStateChanged = (connected) {
       if (!connected && mounted) {
         _handleDisconnectCleanup();
@@ -61,6 +68,8 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       if (mounted) {
         setState(() {
           _rendererInitialized = true;
+          _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
+          _activeQuality = "${widget.webrtcService.currentHeight}p @ ${widget.webrtcService.currentFps}FPS";
         });
       }
     } catch (e) {
@@ -98,17 +107,18 @@ class _CameraStreamViewState extends State<CameraStreamView> {
         setState(() => _torchActive = enabled);
       }
     } else if (method == "camera.setLens") {
-      final ok = await widget.webrtcService.switchCamera();
+      final targetLens = params['lens'] as String?;
+      final ok = await widget.webrtcService.switchCamera(targetLens: targetLens);
       if (ok && mounted) {
         setState(() {
-          _activeLens = (_activeLens == "Rear Main") ? "Front Selfie" : "Rear Main";
+          _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
         });
       }
     } else if (method == "camera.setZoom") {
       final zoom = (params['zoom'] is num) ? (params['zoom'] as num).toDouble() : 1.0;
-      final ok = await widget.webrtcService.setZoom(zoom);
-      if (ok && mounted) {
-        setState(() => _currentZoom = zoom);
+      await widget.webrtcService.setZoom(zoom);
+      if (mounted) {
+        setState(() => _currentZoom = zoom.clamp(1.0, 5.0));
       }
     } else if (method == "camera.setQuality") {
       final width = params['width'] as int? ?? 1920;
@@ -141,15 +151,16 @@ class _CameraStreamViewState extends State<CameraStreamView> {
     final ok = await widget.webrtcService.switchCamera();
     if (ok && mounted) {
       setState(() {
-        _activeLens = (_activeLens == "Rear Main") ? "Front Selfie" : "Rear Main";
+        _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
       });
     }
   }
 
   Future<void> _applyZoom(double factor) async {
-    final ok = await widget.webrtcService.setZoom(factor);
-    if (ok && mounted) {
-      setState(() => _currentZoom = factor);
+    final clamped = factor.clamp(1.0, 5.0);
+    await widget.webrtcService.setZoom(clamped);
+    if (mounted) {
+      setState(() => _currentZoom = clamped);
     }
   }
 
@@ -182,17 +193,25 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       _localRenderer.srcObject = widget.webrtcService.localStream;
     }
 
+    final isFrontFacing = widget.webrtcService.currentFacingMode == 'user';
+
     return Scaffold(
       backgroundColor: const Color(0xFF09090B),
       body: Stack(
         children: [
-          // 1. Live Camera Viewfinder Feed
+          // 1. Live Camera Viewfinder Feed with Real-Time Viewport Zoom & Mirroring
           Positioned.fill(
             child: (_rendererInitialized && _localRenderer.srcObject != null)
-                ? RTCVideoView(
-                    _localRenderer,
-                    mirror: _activeLens.contains("Front"),
-                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                ? ClipRect(
+                    child: Transform.scale(
+                      scale: _currentZoom,
+                      alignment: Alignment.center,
+                      child: RTCVideoView(
+                        _localRenderer,
+                        mirror: isFrontFacing,
+                        objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                      ),
+                    ),
                   )
                 : Container(
                     color: const Color(0xFF09090B),
@@ -206,7 +225,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                           ),
                           SizedBox(height: 16),
                           Text(
-                            "Starting Camera Stream…",
+                            "Starting Studio Stream…",
                             style: TextStyle(
                               color: Color(0xFFA1A1AA),
                               fontSize: 14,
@@ -224,10 +243,10 @@ class _CameraStreamViewState extends State<CameraStreamView> {
             GestureDetector(
               onTap: () => setState(() => _thermalSaverActive = false),
               child: Container(
-                color: Colors.black.withValues(alpha: 0.95),
+                color: Colors.black.withAlpha(240),
                 child: const Center(
                   child: Text(
-                    "Thermal Saver Mode Active\nTap screen to brighten",
+                    "Thermal Saver Active\nTap screen to brighten",
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Color(0xFF71717A), fontSize: 13),
                   ),
@@ -247,7 +266,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                    color: const Color(0xFF18181B).withAlpha(220),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: const Color(0xFF27272A)),
                   ),
@@ -282,7 +301,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                        color: const Color(0xFF18181B).withAlpha(220),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFF27272A)),
                       ),
@@ -299,7 +318,7 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                        color: const Color(0xFF18181B).withAlpha(220),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: const Color(0xFF27272A)),
                       ),
@@ -326,9 +345,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF18181B).withValues(alpha: 0.85),
+                          color: const Color(0xFF18181B).withAlpha(220),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFEF4444).withValues(alpha: 0.5)),
+                          border: Border.all(color: const Color(0xFFEF4444).withAlpha(128)),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
@@ -361,16 +380,15 @@ class _CameraStreamViewState extends State<CameraStreamView> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Floating Toolbar Card
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF18181B).withValues(alpha: 0.90),
+                    color: const Color(0xFF18181B).withAlpha(230),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFF27272A)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.5),
+                        color: Colors.black.withAlpha(128),
                         blurRadius: 16,
                         spreadRadius: 2,
                       ),
@@ -390,10 +408,10 @@ class _CameraStreamViewState extends State<CameraStreamView> {
                         ),
                       ),
 
-                      // Lens Switcher (Front/Rear)
+                      // Lens Switcher (Front / Rear)
                       IconButton(
                         onPressed: _switchLens,
-                        tooltip: "Switch Camera",
+                        tooltip: "Switch Camera ($_activeLens)",
                         icon: const Icon(
                           Icons.flip_camera_ios_rounded,
                           color: Color(0xFFE4E4E7),

@@ -33,8 +33,8 @@ def generate_pairing_payload(
     return json.dumps(data)
 
 
-def generate_qr_image(payload_str: str, box_size: int = 8, border: int = 2) -> Optional["Image.Image"]:
-    """Renders a PIL Image containing the pairing QR code."""
+def generate_qr_image(payload_str: str, box_size: int = 8, border: int = 3) -> Optional["Image.Image"]:
+    """Renders a standard, high-contrast black-on-white PIL Image containing the pairing QR code."""
     if not QRCODE_AVAILABLE:
         return None
 
@@ -46,7 +46,8 @@ def generate_qr_image(payload_str: str, box_size: int = 8, border: int = 2) -> O
     )
     qr.add_data(payload_str)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="#00ADB5", back_color="#1E1E2E")
+    # High contrast black-on-white is required for reliable scanning by mobile cameras off screens
+    img = qr.make_image(fill_color="black", back_color="white")
     return img.convert("RGBA")
 
 

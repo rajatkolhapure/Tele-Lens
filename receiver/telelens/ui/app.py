@@ -1,6 +1,7 @@
 """
 TeleLens Desktop Studio Dashboard.
-Main PyQt6 window with live preview, remote camera controls, virtual camera publisher, and pairing modals.
+Main PyQt6 window with live preview, real-time digital magnification pipeline,
+remote camera controls, virtual camera publisher, and pairing modals.
 """
 
 import sys
@@ -8,6 +9,7 @@ import logging
 import threading
 import asyncio
 from typing import Optional
+import numpy as np
 
 try:
     from PyQt6.QtWidgets import (
@@ -67,6 +69,10 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.config = config or TeleLensConfig()
         self.bridge = AppBridge()
 
+        # Digital Magnification & Preview State
+        self.current_zoom = 1.0
+        self.mirror_preview = False
+
         # Engines
         self.vcam_engine = VirtualCameraEngine(
             width=self.config.stream.width,
@@ -95,7 +101,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
     def _init_ui(self):
         self.setWindowTitle("TeleLens Studio — Pro Phone-to-PC Webcam")
-        self.resize(1220, 760)
+        self.resize(1260, 780)
         self.setStyleSheet(DARK_STYLESHEET)
 
         central = QWidget()
@@ -131,7 +137,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.qr_btn.clicked.connect(self._show_qr_dialog)
         top_bar.addWidget(self.qr_btn)
 
-        self.diag_btn = QPushButton("🛠️ Diagnostics")
+        self.diag_btn = QPushButton("🛠️ Driver Diagnostics")
         self.diag_btn.clicked.connect(self._show_diagnostics)
         top_bar.addWidget(self.diag_btn)
 
@@ -141,16 +147,23 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.video_widget = VideoPreviewWidget()
         left_area.addWidget(self.video_widget, stretch=1)
 
-        # Bottom Bar: Virtual Camera Controls
+        # Bottom Bar: Virtual Camera Controls & Frame Delivery
         bottom_bar = QHBoxLayout()
         self.vcam_btn = QPushButton("🎥 Start Virtual Webcam")
         self.vcam_btn.setObjectName("PrimaryButton")
         self.vcam_btn.clicked.connect(self._toggle_virtual_cam)
 
-        self.vcam_status_lbl = QLabel("Virtual Cam: Inactive")
+        self.vcam_status_lbl = QLabel("Virtual Cam: Inactive (Click Diagnostics to verify driver)")
+        self.vcam_status_lbl.setStyleSheet("color: #A1A1AA; font-size: 12px; margin-left: 8px;")
         bottom_bar.addWidget(self.vcam_btn)
         bottom_bar.addWidget(self.vcam_status_lbl)
         bottom_bar.addStretch()
+
+        # Mirror Preview Button
+        self.mirror_check = QCheckBox("Mirror Viewfinder")
+        self.mirror_check.setChecked(False)
+        self.mirror_check.toggled.connect(self._on_mirror_toggled)
+        bottom_bar.addWidget(self.mirror_check)
 
         left_area.addLayout(bottom_bar)
         root_layout.addLayout(left_area, stretch=3)
@@ -167,8 +180,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
         quality_lbl = QLabel("Resolution & Target Framerate:")
         self.quality_combo = QComboBox()
-        self.quality_combo.addItem("1080p FHD (1920x1080) @ 30 FPS", (1920, 1080, 30))
         self.quality_combo.addItem("1080p FHD (1920x1080) @ 60 FPS", (1920, 1080, 60))
+        self.quality_combo.addItem("1080p FHD (1920x1080) @ 30 FPS", (1920, 1080, 30))
         self.quality_combo.addItem("4K UHD (3840x2160) @ 30 FPS", (3840, 2160, 30))
         self.quality_combo.addItem("1440p QHD (2560x1440) @ 60 FPS", (2560, 1440, 60))
         self.quality_combo.addItem("720p HD (1280x720) @ 60 FPS", (1280, 720, 60))
@@ -186,6 +199,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.lens_combo = QComboBox()
         self.lens_combo.addItem("Rear Primary Camera (Main)", "rear_main")
         self.lens_combo.addItem("Front Selfie Camera", "front")
+        self.lens_combo.addItem("Rear Ultra-Wide Lens", "rear_ultrawide")
+        self.lens_combo.addItem("Rear Telephoto Lens", "rear_telephoto")
         self.lens_combo.currentIndexChanged.connect(self._on_lens_changed)
         cam_layout.addWidget(lens_lbl)
         cam_layout.addWidget(self.lens_combo)
@@ -198,8 +213,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
         sidebar.addWidget(cam_group)
 
-        # Group 3: Digital Zoom with Steppers
-        zoom_group = QGroupBox("Digital Zoom")
+        # Group 3: Digital Magnification & Zoom
+        zoom_group = QGroupBox("Digital Magnification & Zoom")
         zoom_layout = QVBoxLayout(zoom_group)
         zoom_layout.setSpacing(10)
 
@@ -258,7 +273,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self.battery_lbl = QLabel("🔋 Phone Battery: --%")
         power_layout.addWidget(self.battery_lbl)
 
-        self.saver_check = QCheckBox("Phone OLED Screen Dimmer")
+        self.saver_check = QCheckBox("Phone Screen Dimmer (Thermal Saver)")
         self.saver_check.setChecked(True)
         self.saver_check.toggled.connect(self._on_thermal_saver_toggled)
         power_layout.addWidget(self.saver_check)
@@ -306,7 +321,27 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._async_thread = threading.Thread(target=run_loop, daemon=True)
         self._async_thread.start()
 
-    def _on_video_frame(self, frame_rgb):
+    def _on_video_frame(self, frame_rgb: np.ndarray):
+        # 1. Apply Real-Time Digital Magnification & Center-Crop
+        if self.current_zoom > 1.01:
+            try:
+                h, w, c = frame_rgb.shape
+                crop_h = max(2, int(h / self.current_zoom))
+                crop_w = max(2, int(w / self.current_zoom))
+                y1 = (h - crop_h) // 2
+                x1 = (w - crop_w) // 2
+                cropped = frame_rgb[y1:y1 + crop_h, x1:x1 + crop_w]
+                from PIL import Image
+                pil_img = Image.fromarray(cropped)
+                resized_img = pil_img.resize((w, h), Image.Resampling.BILINEAR)
+                frame_rgb = np.ascontiguousarray(np.array(resized_img))
+            except Exception as e:
+                logger.debug("Digital magnification processing error: %s", e)
+
+        # 2. Apply Mirror Viewport if enabled
+        if self.mirror_preview:
+            frame_rgb = np.ascontiguousarray(np.fliplr(frame_rgb))
+
         self.bridge.frame_received.emit(frame_rgb)
         if self.vcam_engine.is_running:
             self.vcam_engine.send_frame(frame_rgb)
@@ -320,11 +355,16 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
     def _handle_frame_received(self, frame_rgb):
         self.video_widget.update_frame(frame_rgb, fps=float(self.config.stream.fps))
         if self.status_badge.objectName() != "StatusBadgeActive":
-            self.status_badge.setText("STREAMING (LIVE)")
+            self.status_badge.setText("STUDIO LIVE")
             self.status_badge.setObjectName("StatusBadgeActive")
             self.status_badge.style().unpolish(self.status_badge)
             self.status_badge.style().polish(self.status_badge)
             self.disconnect_btn.setEnabled(True)
+
+        if self.vcam_engine.is_running and self.vcam_engine.frame_count % 30 == 0:
+            self.vcam_status_lbl.setText(
+                f"Virtual Cam: Active ({self.vcam_engine.backend}) — {self.vcam_engine.frame_count} frames delivered"
+            )
 
     def _handle_approval_dialog(self, device_info, future):
         dialog = ApprovalDialog(device_info, self)
@@ -332,12 +372,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._async_loop.call_soon_threadsafe(future.set_result, accepted)
 
     def _handle_telemetry_ui(self, data):
-        if "batteryLevel" in data:
-            pct = data["batteryLevel"]
-            self.battery_lbl.setText(f"🔋 Phone Battery: {pct}%")
-            self.video_widget.set_battery(pct)
-        elif "battery" in data:
-            pct = data["battery"]
+        pct = data.get("batteryLevel", data.get("battery"))
+        if pct is not None:
             self.battery_lbl.setText(f"🔋 Phone Battery: {pct}%")
             self.video_widget.set_battery(pct)
 
@@ -368,12 +404,13 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             success = self.vcam_engine.start()
             if success:
                 self.vcam_btn.setText("⏹️ Stop Virtual Webcam")
-                self.vcam_status_lbl.setText("Virtual Cam: Active (OBS DirectShow)")
+                self.vcam_status_lbl.setText(f"Virtual Cam: Active ({self.vcam_engine.backend or 'OBS'})")
             else:
                 QMessageBox.warning(
                     self,
-                    "Virtual Camera Error",
-                    "Could not initialize Virtual Camera driver. Click 'Diagnostics' to verify driver registration."
+                    "Virtual Camera Driver",
+                    "Could not initialize Virtual Camera driver.\n\n"
+                    "Click 'Driver Diagnostics' in the top bar to inspect and install the driver with 1 click."
                 )
 
     def _show_qr_dialog(self):
@@ -387,7 +424,7 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         dlg = DiagnosticDialog(self)
         dlg.exec()
 
-    # Camera Controls
+    # Camera & Video Pipeline Controls
     def _on_quality_changed(self, index):
         data = self.quality_combo.currentData()
         if data:
@@ -405,6 +442,8 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         if lens:
             cmd = CameraControls.set_lens(lens)
             self.peer_manager.send_control(cmd)
+            if "front" in lens.lower():
+                self.mirror_check.setChecked(True)
 
     def _on_torch_toggled(self, checked):
         self.torch_btn.setText("🔦 Flashlight: ON" if checked else "🔦 Flashlight: OFF")
@@ -416,9 +455,13 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
 
     def _on_zoom_changed(self, val):
         factor = val / 10.0
+        self.current_zoom = factor
         self.zoom_val_lbl.setText(f"{factor:.1f}x")
         cmd = CameraControls.set_zoom(factor)
         self.peer_manager.send_control(cmd)
+
+    def _on_mirror_toggled(self, checked):
+        self.mirror_preview = checked
 
     def _on_af_toggled(self, checked):
         self.focus_slider.setEnabled(not checked)

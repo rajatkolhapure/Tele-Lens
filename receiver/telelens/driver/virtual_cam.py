@@ -22,7 +22,7 @@ except ImportError:
 class VirtualCameraEngine:
     """Manages publishing raw video frames to the OS virtual camera driver."""
 
-    def __init__(self, width: int = 3840, height: int = 2160, fps: int = 30, backend: str = "obs"):
+    def __init__(self, width: int = 1920, height: int = 1080, fps: int = 30, backend: str = "auto"):
         self.width = width
         self.height = height
         self.fps = fps
@@ -41,7 +41,7 @@ class VirtualCameraEngine:
         return self._frame_count
 
     def start(self) -> bool:
-        """Initializes and starts the virtual camera device."""
+        """Initializes and starts the virtual camera device with auto-detection fallback."""
         if not PYVIRTUALCAM_AVAILABLE:
             logger.error("pyvirtualcam is not installed. Run 'pip install pyvirtualcam'.")
             return False
@@ -50,31 +50,40 @@ class VirtualCameraEngine:
             if self._cam is not None:
                 return True
 
-            try:
-                # pyvirtualcam uses RGB format by default
-                self._cam = pyvirtualcam.Camera(
-                    width=self.width,
-                    height=self.height,
-                    fps=self.fps,
-                    fmt=PixelFormat.RGB,
-                    backend=self.backend if self.backend != "auto" else None,
-                )
-                self._is_running = True
-                self._frame_count = 0
-                logger.info(
-                    "Virtual camera started: %s (%dx%d @ %d FPS, backend: %s)",
-                    self._cam.device,
-                    self.width,
-                    self.height,
-                    self.fps,
-                    self._cam.backend,
-                )
-                return True
-            except Exception as e:
-                logger.error("Failed to start virtual camera: %s", e)
-                self._cam = None
-                self._is_running = False
-                return False
+            backends_to_try = []
+            if self.backend and self.backend != "auto":
+                backends_to_try.append(self.backend)
+            backends_to_try.append(None)  # Auto-discovery fallback
+
+            last_err = None
+            for b in backends_to_try:
+                try:
+                    self._cam = pyvirtualcam.Camera(
+                        width=self.width,
+                        height=self.height,
+                        fps=self.fps,
+                        fmt=PixelFormat.RGB,
+                        backend=b,
+                    )
+                    self._is_running = True
+                    self._frame_count = 0
+                    logger.info(
+                        "Virtual camera started: %s (%dx%d @ %d FPS, backend: %s)",
+                        self._cam.device,
+                        self.width,
+                        self.height,
+                        self.fps,
+                        self._cam.backend,
+                    )
+                    return True
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            logger.error("Failed to start virtual camera: %s", last_err)
+            self._cam = None
+            self._is_running = False
+            return False
 
     def send_frame(self, frame_rgb: np.ndarray) -> bool:
         """

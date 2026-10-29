@@ -1,6 +1,6 @@
 """
 TeleLens Video Preview Widget.
-Renders real-time video frames using QPainter with live telemetry badges.
+Renders real-time video frames using QPainter with dynamic studio telemetry badges.
 """
 
 from typing import Optional
@@ -85,7 +85,7 @@ class VideoPreviewWidget(QWidget if PYQT6_AVAILABLE else object):
                 target_rect = QRect(draw_x, draw_y, draw_w, draw_h)
                 painter.drawImage(target_rect, self._image)
         else:
-            # Placeholder standby screen in sleek grey & black
+            # Standby screen in sleek grey & black
             painter.fillRect(rect, QColor("#09090B"))
             painter.setPen(QColor("#71717A"))
             painter.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
@@ -102,13 +102,25 @@ class VideoPreviewWidget(QWidget if PYQT6_AVAILABLE else object):
 
         # Draw Telemetry Badges in upper-left corner
         if self._is_active:
-            painter.setPen(QPen(QColor("#3F3F46"), 1))
-            painter.setBrush(QColor(18, 18, 20, 220))
-            painter.drawRoundedRect(16, 16, 230, 34, 6, 6)
+            font = QFont("Segoe UI", 10, QFont.Weight.Bold)
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
 
-            painter.setPen(QColor("#E4E4E7"))
-            painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            badge_text = f"LIVE | {self._resolution_str} @ {self._fps:.1f} FPS"
+            badge_text = f"STUDIO LIVE | {self._resolution_str} @ {self._fps:.1f} FPS"
             if self._battery_pct is not None:
                 badge_text += f" | 🔋 {self._battery_pct}%"
-            painter.drawText(26, 38, badge_text)
+
+            text_width = metrics.horizontalAdvance(badge_text)
+            badge_width = text_width + 24
+
+            painter.setPen(QPen(QColor("#3F3F46"), 1))
+            painter.setBrush(QColor(18, 18, 20, 220))
+            painter.drawRoundedRect(16, 16, badge_width, 32, 6, 6)
+
+            # Draw green live dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#22C55E"))
+            painter.drawEllipse(26, 28, 8, 8)
+
+            painter.setPen(QColor("#E4E4E7"))
+            painter.drawText(40, 37, badge_text)

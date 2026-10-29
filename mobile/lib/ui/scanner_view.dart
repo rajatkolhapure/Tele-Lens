@@ -14,25 +14,60 @@ class ScannerView extends StatefulWidget {
 
 class _ScannerViewState extends State<ScannerView> {
   final TextEditingController _ipController = TextEditingController(text: "192.168.1.");
+  final MobileScannerController _scannerController = MobileScannerController(
+    formats: [BarcodeFormat.qrCode],
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    facing: CameraFacing.back,
+    torchEnabled: false,
+  );
   bool _isConnecting = false;
+  bool _isTorchOn = false;
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    _ipController.dispose();
+    super.dispose();
+  }
 
   void _onDetect(BarcodeCapture capture) {
     if (_isConnecting) return;
     final List<Barcode> barcodes = capture.barcodes;
     for (final barcode in barcodes) {
-      if (barcode.rawValue != null) {
-        _connectWithPayload(barcode.rawValue!);
+      final val = barcode.rawValue;
+      if (val != null && val.trim().isNotEmpty) {
+        _connectWithPayload(val.trim());
         break;
       }
     }
   }
 
   Future<void> _connectWithPayload(String rawPayload) async {
+    if (_isConnecting) return;
     setState(() => _isConnecting = true);
 
     try {
-      final jsonMap = jsonDecode(rawPayload) as Map<String, dynamic>;
-      final config = PairingConfig.fromJson(jsonMap);
+      String wsUrl = "";
+      String serverName = "TeleLens Studio";
+
+      if (rawPayload.startsWith("{") && rawPayload.endsWith("}")) {
+        // Standard JSON payload
+        final jsonMap = jsonDecode(rawPayload) as Map<String, dynamic>;
+        final config = PairingConfig.fromJson(jsonMap);
+        wsUrl = config.wsUrl;
+        serverName = config.name.isNotEmpty ? config.name : serverName;
+      } else if (rawPayload.startsWith("ws://") || rawPayload.startsWith("wss://")) {
+        // Direct WebSocket URL
+        wsUrl = rawPayload;
+      } else if (rawPayload.contains(":")) {
+        // Host:Port format
+        wsUrl = "ws://$rawPayload/ws";
+      } else if (RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(rawPayload)) {
+        // Plain IP
+        wsUrl = "ws://$rawPayload:8990/ws";
+      } else {
+        throw FormatException("Unrecognized connection format: $rawPayload");
+      }
 
       final webrtcService = WebRTCService(
         onConnectionStateChanged: (connected) {
@@ -44,14 +79,14 @@ class _ScannerViewState extends State<ScannerView> {
         },
       );
 
-      await webrtcService.connect(config.wsUrl, deviceName: "Mobile Device");
+      await webrtcService.connect(wsUrl, deviceName: "Mobile Device");
 
       if (mounted) {
-        Navigator.of(context).push(
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => CameraStreamView(
               webrtcService: webrtcService,
-              serverName: config.name,
+              serverName: serverName,
             ),
           ),
         );
@@ -59,7 +94,10 @@ class _ScannerViewState extends State<ScannerView> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Connection failed: $e")),
+          SnackBar(
+            content: Text("Connection failed: $e"),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
         );
       }
     } finally {
@@ -73,28 +111,12 @@ class _ScannerViewState extends State<ScannerView> {
     final ip = _ipController.text.trim();
     if (ip.isEmpty) return;
     final url = "ws://$ip:8990/ws";
-    final manualPayload = jsonEncode({
-      "app": "telelens",
-      "name": "Manual TeleLens Server",
-      "host": ip,
-      "port": 8990,
-      "ws_url": url,
-      "token": "open"
-    });
-    _connectWithPayload(manualPayload);
+    _connectWithPayload(url);
   }
 
   void _connectUSB() {
     // USB ADB reverse maps tcp:8990 to phone loopback 127.0.0.1:8990
-    final usbPayload = jsonEncode({
-      "app": "telelens",
-      "name": "TeleLens via USB ADB",
-      "host": "127.0.0.1",
-      "port": 8990,
-      "ws_url": "ws://127.0.0.1:8990/ws",
-      "token": "open"
-    });
-    _connectWithPayload(usbPayload);
+    _connectWithPayload("ws://127.0.0.1:8990/ws");
   }
 
   @override
@@ -109,22 +131,56 @@ class _ScannerViewState extends State<ScannerView> {
         ),
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFFF4F4F5)),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isTorchOn ? Icons.flash_on : Icons.flash_off,
+              color: _isTorchOn ? Colors.amber : const Color(0xFFF4F4F5),
+            ),
+            onPressed: () async {
+              await _scannerController.toggleTorch();
+              setState(() => _isTorchOn = !_isTorchOn);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.flip_camera_ios, color: Color(0xFFF4F4F5)),
+            onPressed: () => _scannerController.switchCamera(),
+          ),
+        ],
       ),
       body: Column(
         children: [
-          // QR Scanner Viewport
+          // QR Scanner Viewport with Scan Reticle
           Expanded(
             flex: 3,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                MobileScanner(onDetect: _onDetect),
+                MobileScanner(
+                  controller: _scannerController,
+                  onDetect: _onDetect,
+                ),
+                // Crisp target framing
                 Container(
-                  width: 250,
-                  height: 250,
+                  width: 260,
+                  height: 260,
                   decoration: BoxDecoration(
                     border: Border.all(color: const Color(0xFFE4E4E7), width: 2.5),
                     borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                Positioned(
+                  bottom: 24,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlpha(180),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      "Align QR code inside box",
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
                   ),
                 ),
                 if (_isConnecting)
@@ -161,7 +217,7 @@ class _ScannerViewState extends State<ScannerView> {
                     onPressed: _connectUSB,
                     icon: const Icon(Icons.usb, size: 22),
                     label: const Text(
-                      "USB Cable Connect",
+                      "USB Cable Connect (Zero Latency)",
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                   ),
@@ -173,7 +229,7 @@ class _ScannerViewState extends State<ScannerView> {
                           controller: _ipController,
                           style: const TextStyle(color: Color(0xFFF4F4F5)),
                           decoration: InputDecoration(
-                            hintText: "Enter Laptop IP (e.g. 192.168.1.50)",
+                            hintText: "Laptop IP (e.g. 192.168.1.50)",
                             hintStyle: const TextStyle(color: Color(0xFF52525B)),
                             filled: true,
                             fillColor: const Color(0xFF18181B),

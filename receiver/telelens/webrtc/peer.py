@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
-    from aiortc.contrib.media import MediaRelay
     AIORTC_AVAILABLE = True
 except ImportError:
     AIORTC_AVAILABLE = False
@@ -46,6 +45,19 @@ class WebRTCPeerManager:
     @property
     def is_connected(self) -> bool:
         return self._is_connected
+
+    def _munge_answer_sdp(self, sdp: str) -> str:
+        """Injects high bitrate and bandwidth parameters into SDP answer."""
+        lines = sdp.split("\r\n")
+        output = []
+        for line in lines:
+            output.append(line)
+            if line.startswith("m=video"):
+                output.append("b=AS:45000")
+                output.append("b=TIAS:45000000")
+            elif line.startswith("a=fmtp:"):
+                output.append(f"{line};x-google-min-bitrate=6000;x-google-start-bitrate=20000;x-google-max-bitrate=50000")
+        return "\r\n".join(output)
 
     async def handle_offer(self, sdp_type: str, sdp_string: str) -> str:
         """Processes remote offer SDP and returns local answer SDP."""
@@ -92,7 +104,9 @@ class WebRTCPeerManager:
         await self.pc.setRemoteDescription(offer)
 
         answer = await self.pc.createAnswer()
-        await self.pc.setLocalDescription(answer)
+        munged_sdp = self._munge_answer_sdp(answer.sdp)
+        custom_answer = RTCSessionDescription(sdp=munged_sdp, type=answer.type)
+        await self.pc.setLocalDescription(custom_answer)
 
         return self.pc.localDescription.sdp
 
@@ -116,7 +130,6 @@ class WebRTCPeerManager:
         try:
             while True:
                 _ = await track.recv()
-                # Audio frame processing can route to virtual audio device
         except asyncio.CancelledError:
             pass
         except Exception as e:
