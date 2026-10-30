@@ -469,18 +469,28 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             )
 
     def _handle_frame_received(self, frame_rgb):
+        h, w = frame_rgb.shape[:2]
         self.video_widget.update_frame(frame_rgb, fps=float(self.config.stream.fps))
         if self.status_badge.objectName() != "StatusBadgeActive":
-            self.status_badge.setText("STUDIO LIVE")
+            self.status_badge.setText(f"STUDIO LIVE ({w}x{h})")
             self.status_badge.setObjectName("StatusBadgeActive")
             self.status_badge.style().unpolish(self.status_badge)
             self.status_badge.style().polish(self.status_badge)
             self.disconnect_btn.setEnabled(True)
 
-        if self.vcam_engine.is_running and self.vcam_engine.frame_count % 30 == 0:
-            self.vcam_status_lbl.setText(
-                f"Virtual Cam: Active ({self.vcam_engine.backend}) — {self.vcam_engine.frame_count} frames delivered"
-            )
+        # Dynamic auto-adaptation: if received resolution changed, adapt virtual camera device
+        if self.vcam_engine.is_running:
+            if (self.vcam_engine.width, self.vcam_engine.height) != (w, h):
+                logger.info("Auto-adapting Virtual Camera buffer to input stream: %dx%d -> %dx%d",
+                            self.vcam_engine.width, self.vcam_engine.height, w, h)
+                self.config.stream.width = w
+                self.config.stream.height = h
+                self.vcam_engine.resize(w, h, self.config.stream.fps)
+
+            if self.vcam_engine.frame_count % 30 == 0:
+                self.vcam_status_lbl.setText(
+                    f"Virtual Cam: Active ({self.vcam_engine.backend}) — {w}x{h} ({self.vcam_engine.frame_count} frames)"
+                )
 
     def _handle_approval_dialog(self, device_info, future):
         dialog = ApprovalDialog(device_info, self)

@@ -124,3 +124,5 @@ receiver/build/
 
 # Allow the PyInstaller spec file (excluded by installer/.gitignore's *.spec.bak pattern was wrong)
 !receiver/telelens.spec
+
+*.exe

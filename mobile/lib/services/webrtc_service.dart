@@ -152,7 +152,17 @@ class WebRTCService {
       }
 
       if (inVideoSection && lines[i].startsWith("a=fmtp:")) {
-        output.add("${lines[i]};x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000");
+        String fmtpLine = lines[i];
+        if (fmtpLine.contains("profile-level-id=")) {
+          fmtpLine = fmtpLine.replaceAll(RegExp(r'profile-level-id=[0-9a-fA-F]+'), 'profile-level-id=42e033');
+          if (!fmtpLine.contains("level-asymmetry-allowed")) {
+            fmtpLine += ";level-asymmetry-allowed=1";
+          }
+          if (!fmtpLine.contains("packetization-mode")) {
+            fmtpLine += ";packetization-mode=1";
+          }
+        }
+        output.add("$fmtpLine;x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000");
       } else {
         output.add(lines[i]);
       }
@@ -168,8 +178,11 @@ class WebRTCService {
         'video': {
           'mandatory': {
             'minWidth': '$width',
+            'maxWidth': '$width',
             'minHeight': '$height',
+            'maxHeight': '$height',
             'minFrameRate': '$fps',
+            'maxFrameRate': '$fps',
           },
           'facingMode': facingMode,
           'optional': [],
@@ -177,21 +190,21 @@ class WebRTCService {
       };
     }
 
-    // Determine proper dimension assignment for phone camera sensor
-    final targetMin = min(width, height);
-    final targetMax = max(width, height);
-
-    // If held in portrait mode, swap to (min x max) e.g. 1080x1920 for 1080p
-    final reqWidth = _isPortraitSensor ? targetMin : targetMax;
-    final reqHeight = _isPortraitSensor ? targetMax : targetMin;
+    // Android camera sensors are physically mounted in landscape (sensorWidth >= sensorHeight).
+    // WebRTC Camera2 enumerator matches sizes against sensor landscape orientation.
+    final sensorWidth = max(width, height);
+    final sensorHeight = min(width, height);
 
     return <String, dynamic>{
       'audio': true,
       'video': {
         'mandatory': {
-          'minWidth': '$reqWidth',
-          'minHeight': '$reqHeight',
+          'minWidth': '$sensorWidth',
+          'maxWidth': '$sensorWidth',
+          'minHeight': '$sensorHeight',
+          'maxHeight': '$sensorHeight',
           'minFrameRate': '$fps',
+          'maxFrameRate': '$fps',
         },
         'facingMode': facingMode,
         'optional': [],
@@ -231,19 +244,20 @@ class WebRTCService {
       final constraints = _buildMediaConstraints(_currentWidth, _currentHeight, _currentFps, _currentFacingMode);
       _localStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
-      debugPrint("Strict getUserMedia constraints failed ($e), falling back to flexible ideal constraints");
-      final targetMin = min(_currentWidth, _currentHeight);
-      final targetMax = max(_currentWidth, _currentHeight);
-      final reqWidth = (_currentWidth == _currentHeight) ? _currentWidth : targetMax;
-      final reqHeight = (_currentWidth == _currentHeight) ? _currentHeight : targetMin;
+      debugPrint("Strict getUserMedia constraints failed ($e), falling back to high-res mandatory bounds");
+      final sensorWidth = max(_currentWidth, _currentHeight);
+      final sensorHeight = min(_currentWidth, _currentHeight);
 
       final fallbackConstraints = <String, dynamic>{
         'audio': true,
         'video': {
-          'width': {'ideal': reqWidth, 'min': reqWidth},
-          'height': {'ideal': reqHeight, 'min': reqHeight},
-          'frameRate': {'ideal': _currentFps},
+          'mandatory': {
+            'minWidth': '${min(1280, sensorWidth)}',
+            'minHeight': '${min(720, sensorHeight)}',
+            'minFrameRate': '24',
+          },
           'facingMode': _currentFacingMode,
+          'optional': [],
         }
       };
       _localStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
@@ -305,19 +319,20 @@ class WebRTCService {
         final constraints = _buildMediaConstraints(newWidth, newHeight, newFps, newFacing);
         newStream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (e) {
-        debugPrint("Strict constraints failed, using flexible ideal bounds: $e");
-        final targetMin = min(newWidth, newHeight);
-        final targetMax = max(newWidth, newHeight);
-        final reqWidth = (newWidth == newHeight) ? newWidth : targetMax;
-        final reqHeight = (newWidth == newHeight) ? newHeight : targetMin;
+        debugPrint("Strict constraints failed, using high-res mandatory bounds: $e");
+        final sensorWidth = max(newWidth, newHeight);
+        final sensorHeight = min(newWidth, newHeight);
 
         final fallback = <String, dynamic>{
           'audio': false,
           'video': {
-            'width': {'ideal': reqWidth, 'min': reqWidth},
-            'height': {'ideal': reqHeight, 'min': reqHeight},
-            'frameRate': {'ideal': newFps},
+            'mandatory': {
+              'minWidth': '${min(1280, sensorWidth)}',
+              'minHeight': '${min(720, sensorHeight)}',
+              'minFrameRate': '24',
+            },
             'facingMode': newFacing,
+            'optional': [],
           }
         };
         newStream = await navigator.mediaDevices.getUserMedia(fallback);

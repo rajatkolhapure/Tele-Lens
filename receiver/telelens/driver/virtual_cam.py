@@ -17,6 +17,8 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+OPENCV_AVAILABLE = CV2_AVAILABLE
+
 try:
     import pyvirtualcam
     from pyvirtualcam import PixelFormat
@@ -104,14 +106,17 @@ class VirtualCameraEngine:
             try:
                 h, w = frame_rgb.shape[:2]
                 if (w, h) != (self.width, self.height):
-                    if CV2_AVAILABLE:
-                        interpolation = cv2.INTER_AREA if (w > self.width and h > self.height) else cv2.INTER_LINEAR
-                        frame_rgb = cv2.resize(frame_rgb, (self.width, self.height), interpolation=interpolation)
-                    else:
-                        from PIL import Image
-                        pil_img = Image.fromarray(frame_rgb)
-                        resized_img = pil_img.resize((self.width, self.height), Image.Resampling.BILINEAR)
-                        frame_rgb = np.ascontiguousarray(np.array(resized_img))
+                    try:
+                        if CV2_AVAILABLE:
+                            interpolation = cv2.INTER_AREA if (w > self.width and h > self.height) else cv2.INTER_LINEAR
+                            frame_rgb = cv2.resize(frame_rgb, (self.width, self.height), interpolation=interpolation)
+                        else:
+                            from PIL import Image
+                            pil_img = Image.fromarray(frame_rgb)
+                            resized_img = pil_img.resize((self.width, self.height), Image.Resampling.BILINEAR)
+                            frame_rgb = np.ascontiguousarray(np.array(resized_img))
+                    except Exception as resize_err:
+                        logger.warning("Frame resize failed: %s", resize_err)
 
                 if not frame_rgb.flags.c_contiguous:
                     frame_rgb = np.ascontiguousarray(frame_rgb)

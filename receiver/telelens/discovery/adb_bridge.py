@@ -38,7 +38,10 @@ class ADBBridge:
 
         # Check standard Windows paths
         if os.name == "nt":
+            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
             candidates = [
+                os.path.join(base_dir, "tools", "adb.exe"),
+                os.path.join(base_dir, "scratch_iriun", "win", "adb.exe"),
                 os.path.expandvars(r"%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe"),
                 os.path.expandvars(r"%PROGRAMFILES%\Android\platform-tools\adb.exe"),
                 os.path.expandvars(r"%PROGRAMFILES(X86)%\Android\platform-tools\adb.exe"),

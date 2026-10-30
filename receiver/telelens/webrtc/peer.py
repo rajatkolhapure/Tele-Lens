@@ -4,6 +4,7 @@ Manages media track demuxing, video frame routing, audio loopback, and DataChann
 Optimized with high initial bitrate floors to prevent Google Congestion Control (GCC) ramp-up delays.
 """
 
+import re
 import json
 import logging
 import asyncio
@@ -52,17 +53,35 @@ class WebRTCPeerManager:
 
     def _munge_answer_sdp(self, sdp: str) -> str:
         """
-        Injects aggressive bandwidth and bitrate parameters into SDP answer.
-        Forces the encoder to initialize immediately at full studio bitrate (35 Mbps)
-        with a 25 Mbps floor, eliminating WebRTC's slow probing curve.
+        Injects high bitrate and bandwidth parameters into SDP answer.
+        Prioritizes H.264 over VP8 and upgrades profile-level-id to Level 5.1 (42e033)
+        with an aggressive bitrate floor (25-35 Mbps) to eliminate downscaling and slow probing.
         """
         lines = sdp.split("\r\n")
         output = []
         in_video_section = False
+
+        # First pass: find all H.264 payload types
+        h264_pts = set()
+        for line in lines:
+            if line.startswith("a=rtpmap:") and "H264/90000" in line:
+                try:
+                    pt = line.split()[0].split(":")[1]
+                    h264_pts.add(pt)
+                except Exception:
+                    pass
+
         for line in lines:
             if line.startswith("m=video"):
                 in_video_section = True
-                output.append(line)
+                parts = line.split()
+                if len(parts) > 3 and h264_pts:
+                    # Reorder payload types so H.264 is the primary offered codec
+                    pts = parts[3:]
+                    reordered = [p for p in pts if p in h264_pts] + [p for p in pts if p not in h264_pts]
+                    output.append(f"{parts[0]} {parts[1]} {parts[2]} {' '.join(reordered)}")
+                else:
+                    output.append(line)
                 output.append("b=AS:50000")
                 output.append("b=TIAS:50000000")
                 continue
@@ -70,7 +89,15 @@ class WebRTCPeerManager:
                 in_video_section = False
 
             if in_video_section and line.startswith("a=fmtp:"):
-                output.append(f"{line};x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000")
+                modified = line
+                if "profile-level-id=" in modified:
+                    # Upgrade from Level 3.1 (42001f / 42e01f) to Level 5.1 (42e033)
+                    modified = re.sub(r'profile-level-id=[0-9a-fA-F]+', 'profile-level-id=42e033', modified)
+                    if "level-asymmetry-allowed" not in modified:
+                        modified += ";level-asymmetry-allowed=1"
+                    if "packetization-mode" not in modified:
+                        modified += ";packetization-mode=1"
+                output.append(f"{modified};x-google-min-bitrate=25000;x-google-start-bitrate=35000;x-google-max-bitrate=50000")
             else:
                 output.append(line)
 
@@ -124,6 +151,19 @@ class WebRTCPeerManager:
         offer = RTCSessionDescription(sdp=sdp_string, type=sdp_type)
         await self.pc.setRemoteDescription(offer)
 
+        # Prioritize hardware H.264 on transceivers
+        for transceiver in self.pc.getTransceivers():
+            if transceiver.kind == "video":
+                try:
+                    from aiortc import RTCRtpReceiver
+                    caps = RTCRtpReceiver.getCapabilities("video")
+                    h264_codecs = [c for c in caps.codecs if c.mimeType.lower() == "video/h264"]
+                    vp8_codecs = [c for c in caps.codecs if c.mimeType.lower() == "video/vp8"]
+                    if h264_codecs:
+                        transceiver.setCodecPreferences(h264_codecs + vp8_codecs)
+                except Exception as pref_err:
+                    logger.debug("Failed setting transceiver codec preferences: %s", pref_err)
+
         answer = await self.pc.createAnswer()
         munged_sdp = self._munge_answer_sdp(answer.sdp)
         custom_answer = RTCSessionDescription(sdp=munged_sdp, type=answer.type)
@@ -154,32 +194,11 @@ class WebRTCPeerManager:
         except Exception as e:
             logger.debug("Audio track reader stopped: %s", e)
 
-    def send_control(self, command_json: str) -> bool:
-        """Sends a JSON-RPC control command over DataChannel to the phone."""
-        if self.data_channel and self.data_channel.readyState == "open":
-            try:
-                self.data_channel.send(command_json)
-                return True
-            except Exception as e:
-                logger.warning("Error sending over DataChannel: %s", e)
-        return False
-
-    def disconnect_peer(self) -> bool:
-        """Notifies remote phone of intentional disconnect."""
-        try:
-            return self.send_control(json.dumps({"method": "session.disconnect", "params": {}}))
-        except Exception:
-            return False
-
     async def close(self) -> None:
         """Closes the WebRTC peer connection and releases resources."""
-        if self.pc:
-            try:
-                await self.pc.close()
-            except Exception as e:
-                logger.warning("Error closing RTCPeerConnection: %s", e)
-            finally:
-                self.pc = None
-                self.data_channel = None
-                self._is_connected = False
-                logger.info("WebRTCPeerManager closed.")
+        if self.pc is not None:
+            await self.pc.close()
+            self.pc = None
+            self._is_connected = False
+            self.data_channel = None
+            logger.info("WebRTC Peer Connection closed.")
