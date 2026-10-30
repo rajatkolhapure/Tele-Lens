@@ -31,7 +31,7 @@ class TestWebRTCResolutionPipeline(unittest.TestCase):
         lines = munged.split("\r\n")
 
         # 1. m=video line must have H.264 payload types (99, 101) BEFORE VP8 (97)
-        video_line = [l for l in lines if l.startswith("m=video")][0]
+        video_line = next(ln for ln in lines if ln.startswith("m=video"))
         pts = video_line.split()[3:]
         self.assertIn("99", pts)
         self.assertIn("101", pts)
@@ -44,12 +44,12 @@ class TestWebRTCResolutionPipeline(unittest.TestCase):
         self.assertIn("b=TIAS:50000000", lines)
 
         # 3. profile-level-id must be upgraded from Level 3.1 to Level 5.1 (42e033)
-        fmtp_99 = [l for l in lines if l.startswith("a=fmtp:99")][0]
+        fmtp_99 = next(ln for ln in lines if ln.startswith("a=fmtp:99"))
         self.assertIn("profile-level-id=42e033", fmtp_99)
         self.assertIn("level-asymmetry-allowed=1", fmtp_99)
         self.assertIn("packetization-mode=1", fmtp_99)
 
-        fmtp_101 = [l for l in lines if l.startswith("a=fmtp:101")][0]
+        fmtp_101 = next(ln for ln in lines if ln.startswith("a=fmtp:101"))
         self.assertIn("profile-level-id=42e033", fmtp_101)
 
     def test_opencv_available_and_fast_scaling(self):
