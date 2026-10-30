@@ -176,14 +176,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
-      - name: Determine APK filename
-        id: apk_name
-        run: |
-          APK=$(ls release-artifacts/android-apk/TeleLens-Android-Universal-*.apk 2>/dev/null | head -n1 | xargs basename || echo "TeleLens-Android-Universal.apk")
-          echo "apk_file=$APK" >> $GITHUB_OUTPUT
-
       - name: Create GitHub Release and attach binaries
-        id: gh_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -193,23 +186,29 @@ jobs:
           body: |
             ## TeleLens ${{ steps.meta.outputs.tag }}
 
-            ### ⚡ Fast CDN Downloads (Cloudflare — global, no throttling)
-            | File | Link |
-            |------|------|
-            | 🖥️ Windows Installer | [TeleLens-Setup.exe](https://cdn.telelens.app/${{ steps.meta.outputs.tag }}/TeleLens-Setup.exe) |
-            | 📱 Android APK | [TeleLens-Android-Universal.apk](https://cdn.telelens.app/${{ steps.meta.outputs.tag }}/${{ steps.apk_name.outputs.apk_file }}) |
+            ### ⚡ Fast Download Links (free global mirrors)
 
-            > These links are served via **Cloudflare R2** — full speed worldwide, no GitHub rate limits.
+            If the GitHub download is slow, use one of these free mirrors:
+
+            **🖥️ Windows Installer (`TeleLens-Setup.exe`)**
+            - [mirror.ghproxy.com](https://mirror.ghproxy.com/https://github.com/rajatkolhapure/Tele-Lens/releases/download/${{ steps.meta.outputs.tag }}/TeleLens-Setup.exe) — Asia/Global CDN
+            - [github.moeyy.xyz](https://github.moeyy.xyz/https://github.com/rajatkolhapure/Tele-Lens/releases/download/${{ steps.meta.outputs.tag }}/TeleLens-Setup.exe) — Global proxy
+
+            **📱 Android APK (`TeleLens-Android-Universal.apk`)**
+            - [mirror.ghproxy.com](https://mirror.ghproxy.com/https://github.com/rajatkolhapure/Tele-Lens/releases/download/${{ steps.meta.outputs.tag }}/TeleLens-Android-Universal-${{ steps.meta.outputs.tag }}.apk) — Asia/Global CDN
+            - [github.moeyy.xyz](https://github.moeyy.xyz/https://github.com/rajatkolhapure/Tele-Lens/releases/download/${{ steps.meta.outputs.tag }}/TeleLens-Android-Universal-${{ steps.meta.outputs.tag }}.apk) — Global proxy
+
+            > Mirror links re-serve the exact same files from GitHub — no third-party hosting, no account required.
 
             ---
 
             ### 🖥️ Windows Installation (Recommended)
-            1. Download **`TeleLens-Setup.exe`** above and run it.
+            1. Download **`TeleLens-Setup.exe`** and run it.
             2. The installer registers the virtual camera driver automatically.
             3. A desktop shortcut is created — double-click to launch.
 
             ### 📱 Android Installation
-            1. Download **`TeleLens-Android-Universal.apk`** above.
+            1. Download **`TeleLens-Android-Universal.apk`**.
             2. On your phone: **Settings → Apps → Install unknown apps** → allow your browser.
             3. Tap the downloaded APK to install.
             4. Open TeleLens → your laptop appears instantly → tap **Connect**.
@@ -224,106 +223,3 @@ jobs:
           files: |
             release-artifacts/windows-installer/TeleLens-Setup.exe
             release-artifacts/android-apk/TeleLens-Android-Universal-*.apk
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # JOB 4 — Mirror to Cloudflare R2  (fast CDN for global downloads)
-  # ═══════════════════════════════════════════════════════════════════════════
-  mirror-to-r2:
-    name: ☁️ Mirror to Cloudflare R2 CDN
-    runs-on: ubuntu-latest
-    needs: [create-release]
-    # Skip if secrets are not configured (e.g. forks or first-time setup)
-    if: |
-      always() &&
-      needs.create-release.result == 'success' &&
-      vars.CF_R2_BUCKET != '' &&
-      secrets.CF_ACCOUNT_ID != '' &&
-      secrets.CF_R2_ACCESS_KEY_ID != '' &&
-      secrets.CF_R2_SECRET_ACCESS_KEY != ''
-
-    steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts/
-
-      - name: Determine version tag
-        id: meta
-        run: |
-          TAG="${{ github.ref_name }}"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Re-derive the dev tag (same logic as create-release job)
-            TAG="dev-$(date +%Y%m%d-%H%M)"
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Install AWS CLI (used for R2 S3-compatible API)
-        run: |
-          pip install awscli --quiet
-
-      - name: Upload Windows installer to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          BUCKET: ${{ vars.CF_R2_BUCKET }}
-        run: |
-          if ls release-artifacts/windows-installer/TeleLens-Setup.exe 2>/dev/null; then
-            aws s3 cp \
-              release-artifacts/windows-installer/TeleLens-Setup.exe \
-              "s3://${BUCKET}/${{ steps.meta.outputs.tag }}/TeleLens-Setup.exe" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --no-progress
-            echo "✅ Windows installer uploaded to R2"
-          else
-            echo "⚠️  Windows installer artifact not found — skipping"
-          fi
-
-      - name: Upload Android APK to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          BUCKET: ${{ vars.CF_R2_BUCKET }}
-        run: |
-          APK=$(ls release-artifacts/android-apk/TeleLens-Android-Universal-*.apk 2>/dev/null | head -n1)
-          if [ -n "$APK" ]; then
-            BASENAME=$(basename "$APK")
-            aws s3 cp \
-              "$APK" \
-              "s3://${BUCKET}/${{ steps.meta.outputs.tag }}/${BASENAME}" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --no-progress
-            echo "✅ Android APK uploaded to R2: ${BASENAME}"
-          else
-            echo "⚠️  Android APK artifact not found — skipping"
-          fi
-
-      - name: Upload latest/ aliases (always point to newest release)
-        if: ${{ !startsWith(steps.meta.outputs.tag, 'dev-') }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          BUCKET: ${{ vars.CF_R2_BUCKET }}
-        run: |
-          # Copy versioned files to a stable /latest/ prefix
-          aws s3 cp \
-            "s3://${BUCKET}/${{ steps.meta.outputs.tag }}/TeleLens-Setup.exe" \
-            "s3://${BUCKET}/latest/TeleLens-Setup.exe" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --no-progress || true
-
-          APK=$(ls release-artifacts/android-apk/TeleLens-Android-Universal-*.apk 2>/dev/null | head -n1)
-          if [ -n "$APK" ]; then
-            BASENAME=$(basename "$APK")
-            aws s3 cp \
-              "s3://${BUCKET}/${{ steps.meta.outputs.tag }}/${BASENAME}" \
-              "s3://${BUCKET}/latest/TeleLens-Android-Universal.apk" \
-              --endpoint-url "$R2_ENDPOINT" \
-              --no-progress || true
-          fi
-          echo "✅ /latest/ aliases updated"
