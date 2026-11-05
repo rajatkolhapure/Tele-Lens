@@ -16,6 +16,7 @@ class TurboStreamService {
   Socket? _socket;
   Timer? _frameTimer;
   bool _isStreaming = false;
+  bool _isCapturing = false;
   int _framesSent = 0;
 
   bool get isStreaming => _isStreaming;
@@ -36,7 +37,9 @@ class TurboStreamService {
     try {
       debugPrint("Connecting Turbo Frame Pipe to $host:$port...");
       _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 4));
+      _socket!.setOption(SocketOption.tcpNoDelay, true);
       _isStreaming = true;
+      _isCapturing = false;
       _framesSent = 0;
       onConnectionChanged?.call(true);
 
@@ -59,7 +62,8 @@ class TurboStreamService {
   }
 
   Future<void> _captureAndSendFrame() async {
-    if (!_isStreaming || _socket == null) return;
+    if (!_isStreaming || _socket == null || _isCapturing) return;
+    _isCapturing = true;
 
     try {
       final byteBuffer = await webrtcService.captureFrame();
@@ -97,6 +101,8 @@ class TurboStreamService {
       _framesSent++;
     } catch (e) {
       debugPrint("Error sending turbo frame: $e");
+    } finally {
+      _isCapturing = false;
     }
   }
 

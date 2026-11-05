@@ -410,10 +410,11 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
         self._on_video_frame(frame_rgb)
 
     def _on_webrtc_frame(self, frame_rgb: np.ndarray):
-        if self.active_protocol != "USB Turbo Pipe":
-            if self.active_protocol != "WebRTC Studio":
-                self.bridge.protocol_detected.emit("WebRTC Studio")
-            self._on_video_frame(frame_rgb)
+        if self.active_protocol == "USB Turbo Pipe":
+            return
+        if self.active_protocol != "WebRTC Studio":
+            self.bridge.protocol_detected.emit("WebRTC Studio")
+        self._on_video_frame(frame_rgb)
 
     def _on_video_frame(self, frame_rgb: np.ndarray):
         # Apply Digital Magnification
@@ -593,6 +594,13 @@ class TeleLensMainWindow(QMainWindow if PYQT6_AVAILABLE else object):
             self.send_command_dual("camera.setLens", {"lens": lens})
             if "front" in lens.lower():
                 self.mirror_check.setChecked(True)
+                self.torch_btn.setChecked(False)
+                self.torch_btn.setText("🔦 Flashlight: OFF (N/A for Front)")
+                self.torch_btn.setEnabled(False)
+            else:
+                self.mirror_check.setChecked(False)
+                self.torch_btn.setEnabled(True)
+                self.torch_btn.setText("🔦 Flashlight: OFF")
 
     def _on_torch_toggled(self, checked):
         self.torch_btn.setText("🔦 Flashlight: ON" if checked else "🔦 Flashlight: OFF")

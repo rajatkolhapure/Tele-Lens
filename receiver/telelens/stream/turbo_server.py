@@ -90,6 +90,13 @@ class TurboStreamServer:
         client_addr = writer.get_extra_info("peername")
         logger.info("Direct Turbo Frame Client connected from %s", client_addr)
         self._active_writer = writer
+        try:
+            import socket as py_socket
+            sock = writer.get_extra_info("socket")
+            if sock:
+                sock.setsockopt(py_socket.IPPROTO_TCP, py_socket.TCP_NODELAY, 1)
+        except Exception:
+            pass
         self._is_streaming = True
         self._frame_count = 0
 

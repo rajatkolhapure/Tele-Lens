@@ -67,7 +67,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
     widget.webrtcService.onStreamReady = (stream) {
       if (mounted) {
         setState(() {
+          _localRenderer.srcObject = null;
           _localRenderer.srcObject = stream;
+          _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
         });
       }
       // If USB mode is active, engage direct zero-throttle frame pipe
@@ -137,6 +139,9 @@ class _CameraStreamViewState extends State<CameraStreamView> {
       if (ok && mounted) {
         setState(() {
           _activeLens = (widget.webrtcService.currentFacingMode == 'user') ? "Front Selfie" : "Rear Main";
+          if (widget.webrtcService.currentFacingMode == 'user') {
+            _torchActive = false;
+          }
         });
       }
     } else if (method == "camera.setZoom") {
